@@ -14,11 +14,9 @@ I wanted to save time and play WoW entirely from the keyboard. The idea is to co
 
 ## Gaming keypads and the keyboard
 
-I built KeyLayers around my **Azeron Cyborg** with a simple goal: reach more abilities with less hand movement. The same idea fits a **Keyzen**, a **Razer Tartarus**, or a regular keyboard. Use the buttons your fingers already rest on, then switch layers to give those same buttons a new set of actions.
+![My Azeron profile showing the action keys, QWSD joystick, and slash key for returning to Base](docs/images/keylayers-azeron-button-map.png)
 
-For example, keep your everyday abilities on **Base** and put your defensive abilities on **Shift**. With Shift set to **Toggle**, one tap switches layers and highlights the matching action bars. You can then use the same buttons without reaching for another row or keeping Shift held.
-
-Give yourself a few sessions to build muscle memory. The optional learning tabs show which key activates each frame while you get used to your setup. Once it clicks, you can keep your hand on the keypad for the actions you’ve mapped and spend more time watching the fight and less time checking your bars.
+I built KeyLayers around my **Azeron Cyborg** to reach more abilities with less hand movement. The same approach works with a **Keyzen**, a **Razer Tartarus**, or a regular keyboard. See the [gaming keypad setup guide](docs/GAMEPAD.md) for my Azeron button map and how I use the mouse thumb buttons to switch layers.
 
 ## Project origins and transparency
 
