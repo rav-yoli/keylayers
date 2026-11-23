@@ -6,7 +6,7 @@ I use KeyLayers in **WoW Forever** with an **Azeron Cyborg II** in my left hand 
 
 ## Mouse thumb buttons
 
-![My left hand on the tilted Azeron and a right-handed mouse illustration with Shift, Ctrl, and Alt callouts](images/keylayers-azeron-mouse.png)
+My left hand on the tilted Azeron and a right-handed mouse illustration with Shift, Ctrl, and Alt callouts
 
 On my mouse, the three thumb buttons are mapped to **Alt**, **Ctrl**, and **Shift**, in that order from the button closest to me to the front of the mouse.
 
@@ -21,6 +21,7 @@ Set the mouse buttons to send those modifier keys in your mouse software. Then o
 
 ## My Azeron button map
 
+![My azeron Cyborg 1 button map](images/azeron-button-map.png)
 - **Action keys** sit on the finger buttons. The map shows **1–8** and **F1**, **F2**, **F3**, **F5** in the main cluster, with **9**, **0**, **-**, and **=** on the lower row.
 - **Movement** is on the thumbstick, which sends keyboard inputs **W**, **Q**, **S**, and **D** in my layout.
 - **Everyday controls** stay within reach, including **Tab** for the nearest target, **Space** for jumping, **B** for inventory, and **/** to return to Base.
