@@ -1,0 +1,49 @@
+name: Package KeyLayers
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out KeyLayers
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Build and validate ZIP
+        id: package
+        shell: bash
+        run: |
+          version=test
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          staging="$(mktemp -d)"
+          addon="$staging/KeyLayers by Rav Yoli"
+          archive="$RUNNER_TEMP/KeyLayers-by-Rav-Yoli-$version.zip"
+
+          mkdir -p "$addon"
+          cp -- *.lua *.xml *.toc LICENSE NOTICE "$addon/"
+          cp -R -- Media "$addon/"
+
+          (cd "$staging" && zip -qr "$archive" "KeyLayers by Rav Yoli")
+          unzip -t "$archive"
+
+          printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: gh release create "$GITHUB_REF_NAME" "$ARCHIVE" --verify-tag --generate-notes
