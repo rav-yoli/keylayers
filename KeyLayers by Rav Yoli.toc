@@ -1,0 +1,13 @@
+## Interface: 16001
+## Title: KeyLayers by Rav Yoli
+## Author: Rav Yoli
+## Notes: Shortcut layers and linked interface frames.
+## Version: 1.0.1b
+## OptionalDeps: Bartender4, Questie
+## SavedVariables: BartenderGlowProfiles, BartenderGlowNotices
+## SavedVariablesPerCharacter: BartenderGlowLayout
+Locale.lua
+Switch.lua
+Core.lua
+Edit.lua
+Options.lua

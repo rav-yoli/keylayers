@@ -1,0 +1,3 @@
+<Bindings>
+    <Binding name="CLICK BartenderGlowNeutralButton:LeftButton" header="BARTENDERGLOW" runOnUp="true"/>
+</Bindings>
