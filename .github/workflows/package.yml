@@ -63,3 +63,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ARCHIVE: ${{ steps.package.outputs.archive }}
         run: gh release create "$GITHUB_REF_NAME" "$ARCHIVE" --verify-tag --generate-notes
+      - name: Upload ZIP to CurseForge
+        if: github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name != 'v1.0.1b'
+        shell: bash
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_GAME_VERSION_ID: ${{ steps.curseforge.outputs.game_version_id }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: |
+          metadata="$(jq -nc \
+            --arg title "KeyLayers ${GITHUB_REF_NAME#v}" \
+            --argjson version "$CF_GAME_VERSION_ID" \
+            --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
+            '{
+              displayName: $title,
+              gameVersions: [$version],
+              releaseType: "release",
+              changelogType: "markdown",
+              changelog: ("[Release notes on GitHub](" + $url + ")")
+            }')"
+
+          response="$(curl --fail --silent --show-error \
+            -H "X-Api-Token: $CF_API_TOKEN" \
+            --form-string "metadata=$metadata" \
+            --form "file=@$ARCHIVE" \
+            https://wow.curseforge.com/api/projects/1825781/upload-file)"
+
+          printf 'CurseForge file ID: %s\n' "$(jq -er '.id' <<< "$response")"
