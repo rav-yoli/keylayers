@@ -27,12 +27,25 @@ function addon.NewPanel(name)
     }
 end
 
+local selfCastLayers = {CTRL = "ctrl", SHIFT = "maj", ALT = "alt"}
+
 local function heldLayer()
     local keys = {}
     if IsControlKeyDown() then keys[#keys + 1] = "ctrl" end
     if IsShiftKeyDown() then keys[#keys + 1] = "maj" end
     if IsAltKeyDown() then keys[#keys + 1] = "alt" end
-    return #keys > 0 and table.concat(keys, "+") or "base"
+    local layer = #keys > 0 and table.concat(keys, "+") or "base"
+    if #keys > 1 then
+        local setting = GetModifiedClick and GetModifiedClick("SELFCAST")
+        local selfCast = selfCastLayers[setting]
+        for index, key in ipairs(keys) do
+            if key == selfCast then
+                table.remove(keys, index)
+                return layer, selfCast, table.concat(keys, "+")
+            end
+        end
+    end
+    return layer
 end
 
 addon.fillTextures = {
@@ -471,7 +484,7 @@ function addon.GetPanelGeometry(panel)
 end
 
 local effects = {}
-local activeLayer = "base"
+local activeLayer, heldSelfCast, heldWithoutSelfCast = "base"
 
 local previewIndex, previewPanel, previewInactive
 
@@ -592,6 +605,8 @@ local function animate()
             if panel.layer == "base" then layer = latchedLayer end
             local active = panel.layer == "always" or (mode ~= "none" and panel.layer == layer)
                 or (mode == "hold" and panel.layer == "unmodified" and activeLayer == "base")
+                or (mode == "hold" and heldSelfCast ~= nil
+                    and (panel.layer == heldSelfCast or panel.layer == heldWithoutSelfCast))
                 or (mode == "latch" and latchedLayer ~= "base" and panel.layer == latchedLayer)
             local alpha = 0
             if active then
@@ -651,7 +666,7 @@ end
 
 function addon.Refresh()
     for _, frame in ipairs(effects) do frame.dirty = true end
-    activeLayer = heldLayer()
+    activeLayer, heldSelfCast, heldWithoutSelfCast = heldLayer()
     refresh()
     animate()
 end

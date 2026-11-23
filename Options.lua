@@ -4,9 +4,9 @@ local defaultMinimapAngle = math.rad(245)
 local labels = {
     base = tr("Base", "Base"), ctrl = tr("Ctrl", "Ctrl"), maj = tr("Maj", "Shift"), alt = "Alt",
     always = tr("Toujours", "Always"), never = tr("Aucun", "None"),
-    unmodified = tr("Aucun modificateur", "No modifier held"),
 }
 function addon.LayerLabel(layer)
+    if layer == "unmodified" then return labels.base end
     if labels[layer] then return labels[layer] end
     local keys = {}
     for key in layer:gmatch("[^+]+") do keys[#keys + 1] = labels[key] end
@@ -359,8 +359,8 @@ local function buildWindow()
         16, -444, "GameFontHighlightSmall")
     neutralHelp:SetWidth(570)
     neutralHelp:SetWordWrap(true)
-    label(activationPopup, tr("Cadre Base : Maintien sans modificateur ou Interrupteur avec Base (neutre).",
-        "Base frame: Hold with no modifier, or Toggle with Base (neutral)."),
+    label(activationPopup, tr("Cadre Base : Maintien avec Base ou Interrupteur avec Base (neutre).",
+        "Base frame: Hold with Base, or Toggle with Base (neutral)."),
         16, -470, "GameFontHighlightSmall")
     local capture = CreateFrame("Frame", nil, activationPopup)
     capture:SetAllPoints(activationPopup)
