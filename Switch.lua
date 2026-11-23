@@ -75,12 +75,12 @@ function addon.ApplyTimedHold()
 end
 
 local function observeTimedHold()
-    if not currentConfig or not BartenderGlowLayout.timedHoldEnabled or InCombatLockdown() then return end
+    if not currentConfig or not KeyLayersLayout.timedHoldEnabled or InCombatLockdown() then return end
     local mask = physicalMask()
     if mask == observedMask then return end
     local now = GetTime()
     if timedPress and not includesMask(mask, timedPress.mask) then
-        local threshold = addon.HoldSensitivity(BartenderGlowLayout.timedHoldSensitivity) / 1000
+        local threshold = addon.HoldSensitivity(KeyLayersLayout.timedHoldSensitivity) / 1000
         if now - timedPress.startedAt >= threshold then
             pendingRestore = timedPress
             pendingRestore.releasedAt = now
@@ -360,7 +360,7 @@ function addon.SyncSwitch(reset)
     updatePending = false
     local configuration = {"bindings = newtable(); candidateMasks = newtable()"}
     local switches = {}
-    for _, panel in ipairs(BartenderGlowLayout.panels) do
+    for _, panel in ipairs(KeyLayersLayout.panels) do
         if addon.ActivationMode(panel) == "latch" and panel.layer ~= "base" then switches[panel.layer] = true end
     end
     for physical = 0, 7 do

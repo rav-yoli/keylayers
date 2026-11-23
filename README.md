@@ -14,13 +14,13 @@ I wanted to save time and play WoW entirely from the keyboard. The idea is to co
 
 ## Gaming keypads and the keyboard
 
-![My Azeron profile showing the action keys, QWSD joystick, and slash key for returning to Base](docs/images/keylayers-azeron-button-map.png)
-
 I built KeyLayers around my **Azeron Cyborg** to reach more abilities with less hand movement. The same approach works with a **Keyzen**, a **Razer Tartarus**, or a regular keyboard. See the [gaming keypad setup guide](docs/GAMEPAD.md) for my Azeron button map and how I use the mouse thumb buttons to switch layers.
 
 ## Project origins and transparency
 
 KeyLayers grew out of my earlier project, **BMF Modifier Glow**. Thanks to **Darkspore** for inspiring the frame customization features with [Backdrops Maker Forever](https://www.curseforge.com/wow/addons/backdrops-maker-forever).
+
+The project was originally called **BartenderGlow** and started as a way to decorate Bartender4 action bars with custom backgrounds and borders. It has since grown into **KeyLayers**, a standalone addon that also works with WoW’s built-in action bars. Bartender4 is an optional integration. KeyLayers automatically migrates settings saved under the old `BartenderGlow` names.
 
 KeyLayers was built with **GPT‑6.2**. My role as **Rav Yoli** was to define the product vision. It took about two days to pin down what I wanted and refine the prompts, plus lots of in-game testing to get to this version.
 

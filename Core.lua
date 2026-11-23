@@ -157,7 +157,7 @@ function addon.CreateHint(frame)
 end
 
 function addon.GlobalHints()
-    local layout = BartenderGlowLayout
+    local layout = KeyLayersLayout
     if not layout.hintSettings then
         layout.hintSettings = {hint = true, hintSide = "top-start", hintOrientation = "horizontal"}
     end
@@ -496,7 +496,7 @@ local function setPaintLevel(layer, level)
 end
 
 local function refresh()
-    local layout = BartenderGlowLayout
+    local layout = KeyLayersLayout
     if not layout then return end
     barBounds = {bars = {}, blizzard = {}}
     local scale = root:GetEffectiveScale()
@@ -664,13 +664,16 @@ events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
-        BartenderGlowLayout = BartenderGlowLayout or {panels = {}, mode = "hold", learning = false}
-        BartenderGlowProfiles = BartenderGlowProfiles or {}
-        addon.MigrateActivation(BartenderGlowLayout)
+        -- The legacy names stay in the TOC so existing saves can be migrated.
+        KeyLayersLayout = KeyLayersLayout or BartenderGlowLayout or {panels = {}, mode = "hold", learning = false}
+        KeyLayersProfiles = KeyLayersProfiles or BartenderGlowProfiles or {}
+        KeyLayersNotices = KeyLayersNotices or BartenderGlowNotices or {}
+        BartenderGlowLayout, BartenderGlowProfiles, BartenderGlowNotices = nil, nil, nil
+        addon.MigrateActivation(KeyLayersLayout)
         addon.SyncSwitch(true)
         addon.InstallOptions()
         addon.Refresh()
-    elseif BartenderGlowLayout then
+    elseif KeyLayersLayout then
         addon.SwitchEvent(event)
         addon.Refresh()
     end
@@ -678,7 +681,7 @@ end)
 
 local elapsed = 0
 events:SetScript("OnUpdate", function(_, delta)
-    if not BartenderGlowLayout then return end
+    if not KeyLayersLayout then return end
     addon.ApplyTimedHold()
     elapsed = elapsed + delta
     if elapsed >= 0.10 then

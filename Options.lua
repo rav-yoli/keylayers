@@ -211,7 +211,7 @@ local function buildWindow()
         panel = panel or draft
         return inactive and styleKeys[key] and panel.inactiveStyle or panel
     end
-    local function layout() return BartenderGlowLayout end
+    local function layout() return KeyLayersLayout end
     local function refreshPreview()
         local panel = window:IsShown() and config:IsShown() and draft or nil
         addon.SetDraftPreview(selected, panel, inactive)
@@ -495,14 +495,14 @@ local function buildWindow()
                 "Another switch already uses this shortcut."))
             return
         end
-        if mode == "latch" and not acknowledged and not (BartenderGlowNotices and BartenderGlowNotices.switch) then
+        if mode == "latch" and not acknowledged and not (KeyLayersNotices and KeyLayersNotices.switch) then
             closeActivation()
             confirm(tr(
                 "Interrupteur verrouille le cadre et redirige temporairement ses touches d’action. Tes raccourcis enregistrés dans WoW et Bartender4 restent intacts.",
                 "Toggle locks the frame and temporarily redirects its action keys. Your saved WoW and Bartender4 bindings stay intact."),
                 function()
-                    BartenderGlowNotices = BartenderGlowNotices or {}
-                    BartenderGlowNotices.switch = true
+                    KeyLayersNotices = KeyLayersNotices or {}
+                    KeyLayersNotices.switch = true
                     openActivation()
                     setActivation(index, mode, key, true)
                 end)
@@ -1219,13 +1219,13 @@ local function buildWindow()
             local snapshot = addon.Copy(layout())
             snapshot.minimapAngle = snapshot.minimapAngle or defaultMinimapAngle
             snapshot.neutralKey = addon.NeutralKey() or false
-            BartenderGlowProfiles[value] = snapshot
+            KeyLayersProfiles[value] = snapshot
             profile = value
             profileName:SetText(value)
             refreshProfiles()
             notify(tr("Profil enregistré.", "Profile saved."))
         end
-        if BartenderGlowProfiles[value] then
+        if KeyLayersProfiles[value] then
             confirm(tr("Remplacer ce profil par la configuration actuelle ?",
                 "Replace this profile with the current settings?"), save)
         else
@@ -1235,7 +1235,7 @@ local function buildWindow()
     label(profiles, tr("Profils partagés entre personnages", "Profiles shared across characters"), 18, -79)
     profileMenu = menu(profiles, 18, -98, 242, function(root)
         local names = {}
-        for value in pairs(BartenderGlowProfiles) do names[#names + 1] = value end
+        for value in pairs(KeyLayersProfiles) do names[#names + 1] = value end
         table.sort(names)
         for _, value in ipairs(names) do
             radio(root, value, value, function() return profile end, function(selection)
@@ -1245,7 +1245,7 @@ local function buildWindow()
         end
     end)
     load = button(profiles, tr("Charger", "Load"), 272, -98, 124, function()
-        local snapshot = BartenderGlowProfiles[profile]
+        local snapshot = KeyLayersProfiles[profile]
         if not snapshot then return end
         confirm(tr("Appliquer ce profil à ce personnage ?", "Apply this profile to this character?"), function()
             if InCombatLockdown() then
@@ -1253,9 +1253,9 @@ local function buildWindow()
                 return
             end
             local minimapAngle = layout().minimapAngle
-            BartenderGlowLayout = addon.Copy(snapshot)
-            BartenderGlowLayout.minimapAngle = snapshot.minimapAngle or minimapAngle
-            BartenderGlowLayout.neutralKey = nil
+            KeyLayersLayout = addon.Copy(snapshot)
+            KeyLayersLayout.minimapAngle = snapshot.minimapAngle or minimapAngle
+            KeyLayersLayout.neutralKey = nil
             addon.MigrateActivation(layout())
             addon.SyncSwitch(true)
             local restored = snapshot.neutralKey == nil or addon.AssignNeutralKey(snapshot.neutralKey)
@@ -1324,7 +1324,7 @@ function addon.InstallOptions()
     highlight:SetSize(31, 31)
     highlight:SetPoint("CENTER")
     local function position()
-        local angle = BartenderGlowLayout.minimapAngle or defaultMinimapAngle
+        local angle = KeyLayersLayout.minimapAngle or defaultMinimapAngle
         icon:ClearAllPoints()
         icon:SetPoint("CENTER", Minimap, "CENTER",
             math.cos(angle) * (Minimap:GetWidth() / 2 + 5),
@@ -1337,7 +1337,7 @@ function addon.InstallOptions()
             local cx, cy = Minimap:GetCenter()
             if cx then
                 local scale = Minimap:GetEffectiveScale()
-                BartenderGlowLayout.minimapAngle = math.atan2(y / scale - cy, x / scale - cx)
+                KeyLayersLayout.minimapAngle = math.atan2(y / scale - cy, x / scale - cx)
                 position()
             end
         end)
