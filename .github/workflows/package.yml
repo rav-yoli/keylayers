@@ -40,7 +40,23 @@ jobs:
           unzip -t "$archive"
 
           printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
+      - name: Resolve CurseForge game version
+        id: curseforge
+        shell: bash
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: |
+          : "${CF_API_TOKEN:?Add the CF_API_TOKEN repository secret}"
 
+          version_id="$(
+            curl --fail --silent --show-error \
+              -H "X-Api-Token: $CF_API_TOKEN" \
+              https://wow.curseforge.com/api/game/wow/versions |
+            jq -er '.[] | select(.gameVersionTypeID == 88568 and .name == "1.60.1") | .id'
+          )"
+
+          printf 'game_version_id=%s\n' "$version_id" >> "$GITHUB_OUTPUT"
+          printf 'WoW Forever 1.60.1 — CurseForge version ID: %s\n' "$version_id"
       - name: Publish GitHub release
         if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
