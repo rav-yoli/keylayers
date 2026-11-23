@@ -4,6 +4,7 @@ local defaultMinimapAngle = math.rad(245)
 local labels = {
     base = tr("Base", "Base"), ctrl = tr("Ctrl", "Ctrl"), maj = tr("Maj", "Shift"), alt = "Alt",
     always = tr("Toujours", "Always"), never = tr("Aucun", "None"),
+    unmodified = tr("Aucun modificateur", "No modifier held"),
 }
 function addon.LayerLabel(layer)
     if labels[layer] then return labels[layer] end
@@ -358,8 +359,8 @@ local function buildWindow()
         16, -444, "GameFontHighlightSmall")
     neutralHelp:SetWidth(570)
     neutralHelp:SetWordWrap(true)
-    label(activationPopup, tr("Pour le cadre BASE, choisis le mode Interrupteur et la touche Base (neutre).",
-        "For the BASE frame, choose Toggle mode and the Base (neutral) key."),
+    label(activationPopup, tr("Cadre Base : Maintien sans modificateur ou Interrupteur avec Base (neutre).",
+        "Base frame: Hold with no modifier, or Toggle with Base (neutral)."),
         16, -470, "GameFontHighlightSmall")
     local capture = CreateFrame("Frame", nil, activationPopup)
     capture:SetAllPoints(activationPopup)
@@ -473,6 +474,7 @@ local function buildWindow()
         return layout().panels[index]
     end
     local function keyAvailable(index, mode, key)
+        if key == "unmodified" then return mode == "hold" end
         if key == "base" and mode ~= "latch" then return false end
         if mode ~= "latch" then return true end
         if key == "never" or key == "always" then return false end
@@ -555,12 +557,11 @@ local function buildWindow()
             local target = targetFor(row.index)
             local mode = addon.ActivationMode(target)
             if mode == "none" then return end
-            for _, key in ipairs(addon.layers) do
-                if mode == "latch" or key ~= "base" then
-                    local option = root:CreateRadio(activationKeyLabel(key), function() return target.layer == key end,
-                        function() setActivation(row.index, mode, key) end)
-                    if not keyAvailable(row.index, mode, key) then option:SetEnabled(false) end
-                end
+            for _, layer in ipairs(addon.layers) do
+                local key = mode == "hold" and layer == "base" and "unmodified" or layer
+                local option = root:CreateRadio(activationKeyLabel(key), function() return target.layer == key end,
+                    function() setActivation(row.index, mode, key) end)
+                if not keyAvailable(row.index, mode, key) then option:SetEnabled(false) end
             end
         end)
         return row

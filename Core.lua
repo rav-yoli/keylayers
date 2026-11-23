@@ -1,7 +1,7 @@
 local addonName, addon = ...
 addon.title = "KeyLayers by Rav Yoli"
 local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-addon.version = getMetadata and getMetadata(addonName, "Version") or "1.0.1b"
+addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.0b"
 local root = UIParent
 local layers = {
     "base", "ctrl", "maj", "alt", "ctrl+maj", "ctrl+alt", "maj+alt", "ctrl+maj+alt",
@@ -591,6 +591,7 @@ local function animate()
             local layer = mode == "hold" and activeLayer or currentLayer
             if panel.layer == "base" then layer = latchedLayer end
             local active = panel.layer == "always" or (mode ~= "none" and panel.layer == layer)
+                or (mode == "hold" and panel.layer == "unmodified" and activeLayer == "base")
                 or (mode == "latch" and latchedLayer ~= "base" and panel.layer == latchedLayer)
             local alpha = 0
             if active then
