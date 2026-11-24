@@ -83,19 +83,17 @@ try {
         }
     }
 
-    if ($updates.Count -eq 0) {
-        throw "The version files already say $Version. Choose a new version."
-    }
+    if ($updates.Count -gt 0) {
+        foreach ($name in $updates.Keys) {
+            [IO.File]::WriteAllText((Join-Path $root $name), $updates[$name], $utf8)
+        }
 
-    foreach ($name in $updates.Keys) {
-        [IO.File]::WriteAllText((Join-Path $root $name), $updates[$name], $utf8)
+        $changedFiles = @($updates.Keys)
+        Invoke-Git -GitArguments (@('add', '--') + $changedFiles)
+        Invoke-Git -GitArguments (@('commit', '-m', "Release KeyLayers $Version", '--') + $changedFiles)
     }
-
-    $changedFiles = @($updates.Keys)
-    Invoke-Git -GitArguments (@('add', '--') + $changedFiles)
-    Invoke-Git -GitArguments (@('commit', '-m', "Release KeyLayers $Version", '--') + $changedFiles)
     Invoke-Git -GitArguments @('tag', '-a', $tag, '-m', "KeyLayers $Version")
-    Write-Host "Created commit and local tag $tag. Pushing main and the tag together..."
+    Write-Host "Created local tag $tag. Pushing main and the tag together..."
     Invoke-Git -GitArguments @('push', '--atomic', '--no-follow-tags', 'origin', 'refs/heads/main:refs/heads/main', "${tagRef}:${tagRef}")
     Write-Host "Pushed $tag. Check the Package KeyLayers workflow to confirm publication."
 }

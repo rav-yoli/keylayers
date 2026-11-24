@@ -177,8 +177,18 @@ local function buildWindow()
     header:SetHeight(34)
     header:EnableMouse(true)
     header:RegisterForDrag("LeftButton")
-    header:SetScript("OnDragStart", function() window:StartMoving() end)
-    header:SetScript("OnDragStop", function() window:StopMovingOrSizing() end)
+    local placedForEditing, moving
+    local function stopMoving()
+        if not moving then return end
+        moving = false
+        window:StopMovingOrSizing()
+    end
+    header:SetScript("OnDragStart", function()
+        moving, placedForEditing = true, true
+        window:StartMoving()
+    end)
+    header:SetScript("OnDragStop", stopMoving)
+    header:SetScript("OnHide", stopMoving)
     local strip = window:CreateTexture(nil, "BACKGROUND", nil, 1)
     strip:SetPoint("TOPLEFT", 1, -1)
     strip:SetPoint("TOPRIGHT", -1, -1)
@@ -198,6 +208,12 @@ local function buildWindow()
     local profiles = CreateFrame("Frame", nil, window)
     profiles:SetAllPoints(config)
     profiles:Hide()
+    local assignment = CreateFrame("Frame", nil, window)
+    assignment:SetAllPoints(config)
+    assignment:Hide()
+    local notes = CreateFrame("Frame", nil, window)
+    notes:SetAllPoints(config)
+    notes:Hide()
     local status = label(window, "", 18, -725, "GameFontHighlightSmall")
     status:SetPoint("RIGHT", window, "RIGHT", -18, 0)
     status:SetJustifyH("LEFT")
@@ -206,6 +222,7 @@ local function buildWindow()
     local selected, draft, profile
     local refresh, pick, setEditing, closeHints, openActivation, closeActivation, cancelNeutralCapture
     local editing, inactive = false, false
+    local keybinds
     local styleKeys = {}
     for _, key in ipairs(addon.styleKeys) do styleKeys[key] = true end
     local function fieldTarget(key, panel)
@@ -217,16 +234,35 @@ local function buildWindow()
         local panel = window:IsShown() and config:IsShown() and draft or nil
         addon.SetDraftPreview(selected, panel, inactive)
     end
-    local showConfigTab, showProfilesTab
+    local tabStates = {}
     local function selectTab(page)
+        if page == assignment and InCombatLockdown() then
+            notify(tr("Mode Édition indisponible en combat.", "Edit mode is unavailable in combat."))
+            return
+        end
         closeHints()
         closeActivation()
-        if page ~= config and editing then setEditing(false) end
+        if page == assignment and not editing then
+            setEditing(true)
+        elseif page ~= config and page ~= assignment and editing then
+            setEditing(false)
+        end
         config:SetShown(page == config)
         profiles:SetShown(page == profiles)
-        showConfigTab(page == config, true)
-        showProfilesTab(page == profiles, true)
+        assignment:SetShown(page == assignment)
+        notes:SetShown(page == notes)
+        status:SetShown(page == config or page == profiles)
+        for target, showState in pairs(tabStates) do showState(target == page, true) end
         notify()
+        if page == assignment then
+            if not keybinds then
+                keybinds = addon.CreateKeybindingAssistant(assignment,
+                    {label = label, button = button, menu = menu, radio = radio}, window)
+            end
+            if not keybinds:IsShown() then keybinds:Open() end
+        elseif keybinds then
+            keybinds:Hide()
+        end
         refreshPreview()
     end
     local tabDivider = window:CreateTexture(nil, "BACKGROUND")
@@ -234,20 +270,67 @@ local function buildWindow()
     tabDivider:SetPoint("TOPRIGHT", -10, -68)
     tabDivider:SetHeight(1)
     tabDivider:SetColorTexture(0.29, 0.42, 0.54, 0.8)
-    showConfigTab = tab(window, tr("Configuration", "Settings"), 18, -39, 130, function() selectTab(config) end)
-    showProfilesTab = tab(window, tr("Profils", "Profiles"), 152, -39, 110, function() selectTab(profiles) end)
-    showConfigTab(true, true)
-    showProfilesTab(false, true)
+    tabStates[config] = tab(window, tr("Configuration", "Settings"), 18, -39, 111, function() selectTab(config) end)
+    tabStates[profiles] = tab(window, tr("Profils", "Profiles"), 133, -39, 75, function() selectTab(profiles) end)
+    tabStates[assignment] = tab(window, tr("Assigner les raccourcis", "Assign keybindings"), 212, -39, 151,
+        function() selectTab(assignment) end)
+    tabStates[notes] = tab(window, tr("Notes de version", "Release notes"), 367, -39, 135, function() selectTab(notes) end)
+    for page, showState in pairs(tabStates) do showState(page == config, true) end
 
     local editToggle = button(window, tr("Mode Édition", "Edit mode"), 510, -39, 152, function()
         setEditing(not editing)
+        if not editing and assignment:IsShown() then selectTab(config) end
+    end)
+
+    local activeHotkeys = check(config, tr("Afficher uniquement les raccourcis des cadres actifs",
+        "Show keybindings only on active frames"), 205, -1, function(value)
+        layout().activeHotkeysOnly = value or nil
+        addon.Refresh()
+    end)
+    activeHotkeys:SetChecked(not not layout().activeHotkeysOnly)
+
+    local notesTitle = tr("Notes de version", "Release notes")
+    label(notes, notesTitle .. " · " .. addon.version, 18, -17, "GameFontNormalLarge")
+    local releaseLines = {
+        tr("L’assignation des raccourcis est un onglet. Elle active le mode Édition et la fenêtre reste déplaçable par son en-tête.",
+            "Assign keybindings is now a tab. It enters Edit mode, and you can still drag the window by its header."),
+        tr("Une option masque les raccourcis des cadres inactifs et affiche la touche seule sur les cadres actifs.",
+            "An option hides keybindings on inactive frames and shows the key without its modifier on active frames."),
+        tr("Survole un raccourci pendant l’assignation pour retrouver le bouton correspondant grâce au halo rouge.",
+            "Hover over a keybinding while assigning keys to find the matching button by its red halo."),
+        tr("Le groupe Base s’affiche en entier. Génère les raccourcis Maj, Ctrl ou Alt en un clic pour les cadres configurés.",
+            "See every Base bar at once. Generate Shift, Ctrl, or Alt shortcuts for your configured frames in one click."),
+    }
+    local releaseText = label(notes, table.concat(releaseLines, "\n\n"), 18, -53, "GameFontHighlight")
+    releaseText:SetWidth(644)
+    releaseText:SetJustifyH("LEFT")
+    releaseText:SetWordWrap(true)
+    local issueURL = "https://legacy.curseforge.com/wow/addons/keylayers-by-rav-yoli/issues"
+    local issueField, issueLabel = field(notes,
+        tr("Copie ce lien avec Ctrl+C, puis ouvre-le dans ton navigateur.",
+            "Copy this link with Ctrl+C and open it in your browser."), 18, -314, 628, #issueURL)
+    issueField:SetScript("OnTextChanged", function(self)
+        if self:GetText() ~= issueURL then self:SetText(issueURL) end
+    end)
+    issueField:SetText(issueURL)
+    issueField:Hide()
+    issueLabel:Hide()
+    notes:SetScript("OnHide", function() issueField:ClearFocus() end)
+    button(notes, tr("Signaler un problème", "Report an issue"), 18, -274, 220, function()
+        issueLabel:Show()
+        issueField:Show()
+        issueField:SetFocus()
+        issueField:HighlightText()
     end)
 
     button(config, tr("Déclencheurs", "Triggers"), 18, -4, 173, function()
         openActivation()
     end)
-    label(config, tr("Alt + F4 à éviter (ferme le jeu)", "Avoid Alt + F4 (closes the game)"),
-        448, -11, "GameFontHighlightSmall")
+    local altWarning = label(config, tr("Alt + F4 à éviter (ferme le jeu)", "Avoid Alt + F4 (closes the game)"),
+        506, -7, "GameFontHighlightSmall")
+    altWarning:SetWidth(156)
+    altWarning:SetJustifyH("LEFT")
+    altWarning:SetWordWrap(true)
     section(config, tr("Cadre en cours d’édition", "Frame being edited"), -31, 50)
     local panels = menu(config, 18, -55, 256, function(root)
         for index, panel in ipairs(layout().panels) do
@@ -1163,10 +1246,15 @@ local function buildWindow()
             return
         end
         editing = value
+        addon.SetGameplayHotkeysSuspended(value)
+        if not value and keybinds then keybinds:Hide() end
         editToggle:SetText(value and tr("Quitter l’édition", "Exit edit mode") or tr("Mode Édition", "Edit mode"))
         if value then
-            window:ClearAllPoints()
-            window:SetPoint("RIGHT", UIParent, "RIGHT", -16, 0)
+            if not placedForEditing then
+                window:ClearAllPoints()
+                window:SetPoint("RIGHT", UIParent, "RIGHT", -16, 0)
+                placedForEditing = true
+            end
             addon.SetEditor({
                 current = function() return selected, draft end,
                 name = function() return clean(name:GetText()) end,
@@ -1203,6 +1291,7 @@ local function buildWindow()
     window:SetScript("OnEvent", function()
         cancelNeutralCapture()
         if editing then setEditing(false) end
+        if assignment:IsShown() then selectTab(config) end
     end)
 
     local profileName = field(profiles, tr("Nom du profil", "Profile name"), 18, -13, 242)
@@ -1257,6 +1346,7 @@ local function buildWindow()
             KeyLayersLayout = addon.Copy(snapshot)
             KeyLayersLayout.minimapAngle = snapshot.minimapAngle or minimapAngle
             KeyLayersLayout.neutralKey = nil
+            activeHotkeys:SetChecked(not not layout().activeHotkeysOnly)
             addon.MigrateActivation(layout())
             addon.SyncSwitch(true)
             local restored = snapshot.neutralKey == nil or addon.AssignNeutralKey(snapshot.neutralKey)
@@ -1272,6 +1362,7 @@ local function buildWindow()
     pick(1)
     window:SetScript("OnShow", refreshPreview)
     window:SetScript("OnHide", function()
+        if assignment:IsShown() then selectTab(config) end
         closeHints()
         closeActivation()
         if editing then setEditing(false) end

@@ -134,6 +134,7 @@ local function splitKey(binding)
     end
     return mask, remaining
 end
+addon.SplitBinding = splitKey
 
 local function isActionBinding(command)
     return command:match("^CLICK BT4Button%d+:")
