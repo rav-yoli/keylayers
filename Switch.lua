@@ -5,101 +5,146 @@ local neutralBinding = "CLICK " .. neutralButtonName .. ":LeftButton"
 BINDING_HEADER_BARTENDERGLOW = "KeyLayers"
 _G["BINDING_NAME_" .. neutralBinding] = tr("Revenir au neutre", "Return to neutral")
 
-function addon.NeutralKey()
-    return GetBindingKey(neutralBinding)
+local function bindingContext(binding)
+    if C_KeyBindings and C_KeyBindings.GetBindingContextForAction then
+        return C_KeyBindings.GetBindingContextForAction(binding)
+    end
 end
 
-function addon.AssignNeutralKey(key)
+function addon.NeutralKey()
+    return GetBindingKey(neutralBinding, nil, bindingContext(neutralBinding))
+end
+
+function addon.ShortcutActionLabel(binding)
+    return _G["BINDING_NAME_" .. binding] or binding
+end
+
+local function assignKey(binding, key, replace)
     if InCombatLockdown() then return false, "combat" end
+    local context = bindingContext(binding)
+    local previous = {GetBindingKey(binding, nil, context)}
+    local owner, ownerContext
     if key then
-        local saved = GetBindingAction(key, false) or ""
+        owner = GetBindingAction(key, false) or ""
         local effective = GetBindingAction(key, true) or ""
-        if (saved ~= "" and saved ~= neutralBinding) or (effective ~= "" and effective ~= neutralBinding) then
-            return false, "occupied"
+        if owner == "" and effective ~= "" and effective ~= binding then
+            return false, "temporary", effective
+        end
+        if owner ~= "" and owner ~= binding then
+            if owner ~= replace then return false, "occupied", owner end
+            ownerContext = bindingContext(owner)
+        end
+        if owner == binding and #previous == 1 and previous[1] == key then return true end
+    elseif #previous == 0 then
+        return true
+    end
+
+    local replacing = key and owner ~= "" and owner ~= binding
+    if replacing and not SetBinding(key, nil, ownerContext) then return false, "invalid" end
+    if key and not SetBinding(key, binding, context) then
+        if replacing then SetBinding(key, owner, ownerContext) end
+        return false, "invalid"
+    end
+
+    local removed = {}
+    for _, old in ipairs(previous) do
+        if old ~= key then
+            if not SetBinding(old, nil, context) then
+                for _, restored in ipairs(removed) do SetBinding(restored, binding, context) end
+                if key then
+                    if replacing and ownerContext ~= context then SetBinding(key, nil, context) end
+                    SetBinding(key, owner ~= "" and owner or nil, ownerContext or context)
+                end
+                return false, "invalid"
+            end
+            removed[#removed + 1] = old
         end
     end
-    local previous = {GetBindingKey(neutralBinding)}
-    if key and #previous == 1 and previous[1] == key then return true end
-    if key and not SetBinding(key, neutralBinding) then return false, "invalid" end
-    for _, old in ipairs(previous) do
-        if old ~= key then SetBinding(old) end
-    end
-    if not key and #previous == 0 then return true end
     SaveBindings(GetCurrentBindingSet())
     return true
 end
 
+function addon.AssignNeutralKey(key, replace)
+    return assignKey(neutralBinding, key, replace)
+end
+
 local driver, currentConfig, updatePending, synchronizing
+local ensureToggleButton
+local enabledToggles = {}
 local modifierCondition = "[mod:ctrl,mod:shift,mod:alt] 7; [mod:ctrl,mod:shift] 3; "
     .. "[mod:ctrl,mod:alt] 5; [mod:shift,mod:alt] 6; [mod:ctrl] 1; [mod:shift] 2; [mod:alt] 4; 0"
 local layerByMask = {[0] = "base", "ctrl", "maj", "ctrl+maj", "alt", "ctrl+alt", "maj+alt", "ctrl+maj+alt"}
 local prefixMask = {CTRL = 1, SHIFT = 2, ALT = 4}
-local activeSwitches, observedMask, timedPress, pendingRestore
+local toggleBindings, layerMasks = {}, {base = 0}
+for mask = 1, 7 do
+    local layer = layerByMask[mask]
+    local name = "CLICK KeyLayersToggle" .. mask .. ":LeftButton"
+    toggleBindings[layer], layerMasks[layer] = name, mask
+    local modifiers = {}
+    local captions = {ctrl = tr("Ctrl", "Ctrl"), maj = tr("Maj", "Shift"), alt = "Alt"}
+    for modifier in layer:gmatch("[^+]+") do modifiers[#modifiers + 1] = captions[modifier] end
+    _G["BINDING_NAME_" .. name] = tr("Verrouiller %s", "Toggle %s"):format(table.concat(modifiers, " + "))
+end
+
+function addon.ToggleKey(layer)
+    local binding = toggleBindings[layer]
+    if binding then return GetBindingKey(binding, nil, bindingContext(binding)) end
+end
+
+function addon.AssignToggleKey(layer, key, replace)
+    local binding = toggleBindings[layer]
+    if not binding then return false, "invalid" end
+    return assignKey(binding, key, replace)
+end
 
 local function physicalMask()
     return (IsControlKeyDown() and 1 or 0) + (IsShiftKeyDown() and 2 or 0) + (IsAltKeyDown() and 4 or 0)
 end
 
-function addon.HoldSensitivity(value)
-    return math.max(50, math.min(1000, math.floor((tonumber(value) or 150) + 0.5)))
-end
-
-function addon.ResetTimedHold()
-    observedMask, timedPress, pendingRestore = physicalMask(), nil, nil
-end
-
-local function includesMask(mask, required)
-    for _, bit in ipairs({1, 2, 4}) do
-        if required % (bit * 2) >= bit and mask % (bit * 2) < bit then return false end
-    end
-    return true
-end
-
-function addon.ApplyTimedHold()
-    if not pendingRestore then return end
-    if InCombatLockdown() or GetTime() - pendingRestore.releasedAt > 0.5 then
-        addon.ResetTimedHold()
-        return
-    end
-    local physical = driver:GetAttribute("shiftkit-physical") or 0
-    if physical ~= observedMask or includesMask(physical, pendingRestore.mask) then return end
-    if driver:GetAttribute("shiftkit-last-press") == pendingRestore.mask
-        and driver:GetAttribute("shiftkit-press-sequence") == pendingRestore.sequence then
-        driver:Execute([[
-            self:SetAttribute("shiftkit-latched", self:GetAttribute("shiftkit-before-press") or 0)
-            self:SetAttribute("shiftkit-last-press", nil)
-            self:RunAttribute("shiftkit-update")
-        ]])
-    end
-    pendingRestore = nil
-end
-
-local function observeTimedHold()
-    if not currentConfig or not KeyLayersLayout.timedHoldEnabled or InCombatLockdown() then return end
-    local mask = physicalMask()
-    if mask == observedMask then return end
-    local now = GetTime()
-    if timedPress and not includesMask(mask, timedPress.mask) then
-        local threshold = addon.HoldSensitivity(KeyLayersLayout.timedHoldSensitivity) / 1000
-        if now - timedPress.startedAt >= threshold then
-            pendingRestore = timedPress
-            pendingRestore.releasedAt = now
-        end
-        timedPress = nil
-    end
-    if activeSwitches[layerByMask[mask]] and not includesMask(observedMask, mask) then
-        local sequence = driver:GetAttribute("shiftkit-press-sequence") or 0
-        local observedByDriver = driver:GetAttribute("shiftkit-physical") == mask
-            and driver:GetAttribute("shiftkit-last-press") == mask
-        timedPress = {mask = mask, startedAt = now, sequence = observedByDriver and sequence or sequence + 1}
-        pendingRestore = nil
-    end
-    observedMask = mask
-    addon.ApplyTimedHold()
-end
-
 function addon.ActivationMode(panel)
     return panel.activationMode or ((panel.layer == "never" or panel.layer == "always") and "none" or "hold")
+end
+
+function addon.HoldLayer(panel)
+    if addon.ActivationMode(panel) == "hold" then return panel.layer end
+end
+
+function addon.PanelToggle(panel)
+    return panel.toggleId or panel.toggleLayer or (addon.ActivationMode(panel) == "latch" and panel.layer) or nil
+end
+
+function addon.PanelKeyLayer(panel)
+    local toggle = addon.PanelToggle(panel)
+    return addon.HoldLayer(panel) or (type(toggle) == "string" and toggle) or (toggle and "base" or nil)
+end
+
+local function frameToggleBinding(id)
+    return "CLICK KeyLayersFrameToggle" .. id .. ":LeftButton"
+end
+
+function addon.PanelToggleKey(panel)
+    local toggle = addon.PanelToggle(panel)
+    if not toggle then return end
+    if toggle == "base" then return addon.NeutralKey() end
+    if type(toggle) == "string" then return addon.ToggleKey(toggle) end
+    local binding = frameToggleBinding(toggle)
+    return GetBindingKey(binding, nil, bindingContext(binding))
+end
+
+function addon.NewPanelToggleId()
+    local id = KeyLayersNotices.nextToggleId or 8
+    KeyLayersNotices.nextToggleId = id + 1
+    return id
+end
+
+function addon.AssignPanelToggleKey(panel, toggle, key, replace)
+    if InCombatLockdown() then return false, "combat" end
+    if toggle == "base" then return addon.AssignNeutralKey(key, replace) end
+    if type(toggle) == "string" then return addon.AssignToggleKey(toggle, key, replace) end
+    local binding = frameToggleBinding(toggle)
+    _G["BINDING_NAME_" .. binding] = tr("Verrouiller %s", "Toggle %s"):format(panel.name)
+    ensureToggleButton(toggle)
+    return assignKey(binding, key, replace)
 end
 
 function addon.MigrateActivation(layout)
@@ -248,19 +293,17 @@ local function collectBindings(switches)
                         entries[#entries + 1] = ("bindings[%d][0][%q] = %q"):format(mask, key, target)
                         counts[layer] = counts[layer] + 1
                     end
-                    for physical, heldPrefix in ipairs(modifierPrefix) do
-                        if disjoint(mask, physical) and not switches[layerByMask[physical]]
-                            and not (key == "F4" and hasBit(mask + physical, 4)) then
-                            local pressed = heldPrefix .. key
-                            local assigned = GetBindingAction(pressed, false) or ""
-                            if (assigned == "" or isActionBinding(assigned)) and not protectsShortcut(key, physical) then
-                                local combined = GetBindingAction(modifierPrefix[mask + physical] .. key, true) or ""
-                                local action = isActionBinding(combined) and combined or (combined == "" and target or "")
-                                if isActionBinding(action) then
-                                    if selfCastMask and hasBit(physical, selfCastMask) then action = selfCastAction(action) end
-                                    entries[#entries + 1] = ("bindings[%d][%d][%q] = %q")
-                                        :format(mask, physical, pressed, action)
-                                end
+                    local physical = selfCastMask
+                    if physical and disjoint(mask, physical)
+                        and not (key == "F4" and hasBit(mask + physical, 4)) then
+                        local pressed = modifierPrefix[physical] .. key
+                        local assigned = GetBindingAction(pressed, false) or ""
+                        if (assigned == "" or isActionBinding(assigned)) and not protectsShortcut(key, physical) then
+                            local combined = GetBindingAction(modifierPrefix[mask + physical] .. key, true) or ""
+                            local action = isActionBinding(combined) and combined or (combined == "" and target or "")
+                            if isActionBinding(action) then
+                                entries[#entries + 1] = ("bindings[%d][%d][%q] = %q")
+                                    :format(mask, physical, pressed, selfCastAction(action))
                             end
                         end
                     end
@@ -305,50 +348,41 @@ local updateBindings = [[
 ]]
 
 local modifierChanged = [[
-    local physical = tonumber(newstate) or 0
-    local previous = self:GetAttribute("shiftkit-physical") or 0
-    if physical == previous then return end
-
-    local candidates = candidateMasks[physical]
-    local priorCandidates = candidateMasks[previous]
-    local added = false
-    for bit = 1, 4 do
-        if bit ~= 3 and candidates % (bit * 2) >= bit and previous % (bit * 2) < bit
-            and physical % (bit * 2) >= bit then
-            added = true
-        end
-    end
-    if added then
-        local latched = self:GetAttribute("shiftkit-latched") or 0
-        if priorCandidates == 0 then self:SetAttribute("shiftkit-before-press", latched) end
-        local before = self:GetAttribute("shiftkit-before-press") or 0
-        self:SetAttribute("shiftkit-latched", candidates == before and 0 or candidates)
-        self:SetAttribute("shiftkit-last-press", candidates)
-        self:SetAttribute("shiftkit-press-sequence", (self:GetAttribute("shiftkit-press-sequence") or 0) + 1)
-    end
-    self:SetAttribute("shiftkit-physical", physical)
+    self:SetAttribute("shiftkit-physical", tonumber(newstate) or 0)
     self:RunAttribute("shiftkit-update")
 ]]
+
+local toggleClick = [[
+    if down then return end
+    local controller = self:GetFrameRef("shiftkit")
+    local id = self:GetAttribute("shiftkit-toggle-mask")
+    local route = controller:GetAttribute("shiftkit-route-" .. id)
+    if id ~= 0 and not route then return end
+    local active = controller:GetAttribute("shiftkit-active-toggle") or 0
+    if id == active then id = 0 end
+    controller:SetAttribute("shiftkit-active-toggle", id)
+    controller:SetAttribute("shiftkit-latched", id == 0 and 0 or route)
+    controller:RunAttribute("shiftkit-update")
+]]
+
+ensureToggleButton = function(id)
+    local name = id == 0 and neutralButtonName
+        or (id < 8 and "KeyLayersToggle" or "KeyLayersFrameToggle") .. id
+    if _G[name] then return end
+    local button = CreateFrame("Button", name, UIParent, "SecureHandlerClickTemplate")
+    button:SetSize(1, 1)
+    button:EnableMouse(false)
+    button:SetFrameRef("shiftkit", driver)
+    button:RegisterForClicks("AnyDown", "AnyUp")
+    button:SetAttribute("shiftkit-toggle-mask", id)
+    button:SetAttribute("_onclick", toggleClick)
+end
 
 local function installDriver()
     driver = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
     driver:SetAttribute("_onstate-shiftkitmods", modifierChanged)
     driver:SetAttribute("shiftkit-update", updateBindings)
-    local reset = CreateFrame("Button", neutralButtonName, UIParent, "SecureHandlerClickTemplate")
-    reset:SetSize(1, 1)
-    reset:EnableMouse(false)
-    reset:SetFrameRef("shiftkit", driver)
-    reset:RegisterForClicks("AnyDown", "AnyUp")
-    reset:SetAttribute("_onclick", [[
-        if down then return end
-        local controller = self:GetFrameRef("shiftkit")
-        controller:ClearBindings()
-        controller:SetAttribute("shiftkit-latched", 0)
-        controller:SetAttribute("shiftkit-before-press", 0)
-        controller:SetAttribute("shiftkit-last-press", nil)
-        controller:SetAttribute("shiftkit-mapped", controller:GetAttribute("shiftkit-physical") or 0)
-        controller:SetAttribute("shiftkit-display", controller:GetAttribute("shiftkit-physical") or 0)
-    ]])
+    for id = 0, 7 do ensureToggleButton(id) end
 end
 
 function addon.SyncSwitch(reset)
@@ -359,15 +393,30 @@ function addon.SyncSwitch(reset)
     end
     if not driver then installDriver() end
     updatePending = false
-    local configuration = {"bindings = newtable(); candidateMasks = newtable()"}
-    local switches = {}
+    local configuration = {"bindings = newtable()"}
+    local switches, routes, ids = {}, {}, {}
     for _, panel in ipairs(KeyLayersLayout.panels) do
-        if addon.ActivationMode(panel) == "latch" and panel.layer ~= "base" then switches[panel.layer] = true end
+        local toggle = addon.PanelToggle(panel)
+        local id = type(toggle) == "number" and toggle or layerMasks[toggle]
+        if id and id > 0 and routes[id] == nil then
+            local layer = type(toggle) == "string" and toggle or addon.HoldLayer(panel)
+            local route = layerMasks[layer] or 0
+            routes[id] = route
+            ids[#ids + 1] = id
+            if route > 0 then switches[layer] = true end
+            if id >= 8 then
+                KeyLayersNotices.nextToggleId = math.max(KeyLayersNotices.nextToggleId or 8, id + 1)
+                _G["BINDING_NAME_" .. frameToggleBinding(id)] = tr("Verrouiller %s", "Toggle %s"):format(panel.name)
+                ensureToggleButton(id)
+            end
+        end
+    end
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+        configuration[#configuration + 1] = ("self:SetAttribute(%q, %d)"):format("shiftkit-route-" .. id, routes[id])
     end
     for physical = 0, 7 do
-        local candidate = switches[layerByMask[physical]] and physical or 0
-        configuration[#configuration + 1] = ("bindings[%d] = newtable(); candidateMasks[%d] = %d")
-            :format(physical, physical, candidate)
+        configuration[#configuration + 1] = ("bindings[%d] = newtable()"):format(physical)
         for held = 0, 7 do
             configuration[#configuration + 1] = ("bindings[%d][%d] = newtable()"):format(physical, held)
         end
@@ -384,14 +433,13 @@ function addon.SyncSwitch(reset)
         if currentConfig then UnregisterStateDriver(driver, "shiftkitmods") end
         ClearOverrideBindings(driver)
         local physical = physicalMask()
-        addon.ResetTimedHold()
-        activeSwitches = switches
+        for id in pairs(enabledToggles) do driver:SetAttribute("shiftkit-route-" .. id, nil) end
+        enabledToggles = routes
+        driver:SetAttribute("shiftkit-active-toggle", 0)
         driver:SetAttribute("shiftkit-latched", 0)
         driver:SetAttribute("shiftkit-mapped", 0)
         driver:SetAttribute("shiftkit-physical", physical)
         driver:SetAttribute("shiftkit-display", physical)
-        driver:SetAttribute("shiftkit-before-press", 0)
-        driver:SetAttribute("shiftkit-last-press", nil)
         driver:Execute(source)
         driver:SetAttribute("state-shiftkitmods", nil)
         currentConfig = source
@@ -400,12 +448,18 @@ function addon.SyncSwitch(reset)
     end
 end
 
+function addon.ActiveToggle()
+    return currentConfig and driver:GetAttribute("shiftkit-active-toggle") or 0
+end
+
+function addon.IsPanelToggled(panel, activeToggle)
+    local toggle = addon.PanelToggle(panel)
+    local id = type(toggle) == "number" and toggle or layerMasks[toggle]
+    return id ~= nil and id == activeToggle
+end
+
 function addon.LatchedLayer()
     if not currentConfig then return end
-    if timedPress and driver:GetAttribute("shiftkit-last-press") == timedPress.mask
-        and driver:GetAttribute("shiftkit-press-sequence") == timedPress.sequence then
-        return layerByMask[timedPress.mask]
-    end
     return layerByMask[driver:GetAttribute("shiftkit-latched")]
 end
 
@@ -414,13 +468,8 @@ function addon.SwitchLayer()
 end
 
 function addon.SwitchEvent(event)
-    if event == "MODIFIER_STATE_CHANGED" then
-        observeTimedHold()
-    elseif event == "PLAYER_REGEN_DISABLED" then
-        addon.ResetTimedHold()
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        addon.ResetTimedHold()
-        if updatePending then addon.SyncSwitch() end
+    if event == "PLAYER_REGEN_ENABLED" and updatePending then
+        addon.SyncSwitch()
     elseif event == "UPDATE_BINDINGS" or event == "PLAYER_ENTERING_WORLD" then
         addon.SyncSwitch()
     end

@@ -2,7 +2,7 @@
 ## Title: KeyLayers by Rav Yoli
 ## Author: Rav Yoli
 ## Notes: Shortcut layers and linked interface frames.
-## Version: 1.1.2b
+## Version: 1.1.9b
 ## OptionalDeps: Bartender4, Questie
 ## SavedVariables: KeyLayersProfiles, KeyLayersNotices, BartenderGlowProfiles, BartenderGlowNotices
 ## SavedVariablesPerCharacter: KeyLayersLayout, BartenderGlowLayout

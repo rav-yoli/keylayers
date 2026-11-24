@@ -1,3 +1,10 @@
 <Bindings>
     <Binding name="CLICK BartenderGlowNeutralButton:LeftButton" header="BARTENDERGLOW" runOnUp="true"/>
+    <Binding name="CLICK KeyLayersToggle1:LeftButton" runOnUp="true"/>
+    <Binding name="CLICK KeyLayersToggle2:LeftButton" runOnUp="true"/>
+    <Binding name="CLICK KeyLayersToggle3:LeftButton" runOnUp="true"/>
+    <Binding name="CLICK KeyLayersToggle4:LeftButton" runOnUp="true"/>
+    <Binding name="CLICK KeyLayersToggle5:LeftButton" runOnUp="true"/>
+    <Binding name="CLICK KeyLayersToggle6:LeftButton" runOnUp="true"/>
+    <Binding name="CLICK KeyLayersToggle7:LeftButton" runOnUp="true"/>
 </Bindings>

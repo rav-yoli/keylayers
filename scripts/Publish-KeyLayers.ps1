@@ -5,7 +5,7 @@ param(
     [ValidatePattern('\A[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9-]*\z')]
     [string]$Version,
 
-    [string]$RepoPath = (Get-Location).Path
+    [string]$RepoPath = (Join-Path $PSScriptRoot '..')
 )
 
 Set-StrictMode -Version Latest

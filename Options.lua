@@ -121,13 +121,14 @@ local function radio(root, caption, value, current, select)
         function() select(value) end)
 end
 
-local function confirm(message, accept)
+local function confirm(message, accept, cancel)
     StaticPopupDialogs.BARTENDERGLOW_CONFIRM = {
-        text = message, button1 = ACCEPT, button2 = CANCEL, timeout = 0,
+        text = "%s", button1 = ACCEPT, button2 = CANCEL, timeout = 0,
         whileDead = true, hideOnEscape = true,
-        OnAccept = function(_, action) action() end,
+        OnAccept = function(_, action) action.accept() end,
+        OnCancel = function(_, action) if action.cancel then action.cancel() end end,
     }
-    StaticPopup_Show("BARTENDERGLOW_CONFIRM", nil, nil, accept)
+    StaticPopup_Show("BARTENDERGLOW_CONFIRM", message, nil, {accept = accept, cancel = cancel})
 end
 
 local fields = {
@@ -220,7 +221,7 @@ local function buildWindow()
     local function notify(message) status:SetText(message or "") end
 
     local selected, draft, profile
-    local refresh, pick, setEditing, closeHints, openActivation, closeActivation, cancelNeutralCapture
+    local refresh, pick, setEditing, closeHints, openActivation, closeActivation, cancelShortcutCapture
     local editing, inactive = false, false
     local keybinds
     local styleKeys = {}
@@ -257,7 +258,7 @@ local function buildWindow()
         if page == assignment then
             if not keybinds then
                 keybinds = addon.CreateKeybindingAssistant(assignment,
-                    {label = label, button = button, menu = menu, radio = radio}, window)
+                    {label = label, button = button, menu = menu, radio = radio, tab = tab, check = check}, window)
             end
             if not keybinds:IsShown() then keybinds:Open() end
         elseif keybinds then
@@ -282,33 +283,34 @@ local function buildWindow()
         if not editing and assignment:IsShown() then selectTab(config) end
     end)
 
-    local activeHotkeys = check(config, tr("Afficher uniquement les raccourcis des cadres actifs",
-        "Show keybindings only on active frames"), 205, -1, function(value)
-        layout().activeHotkeysOnly = value or nil
-        addon.Refresh()
-    end)
-    activeHotkeys:SetChecked(not not layout().activeHotkeysOnly)
-
-    local notesTitle = tr("Notes de version", "Release notes")
-    label(notes, notesTitle .. " · " .. addon.version, 18, -17, "GameFontNormalLarge")
-    local releaseLines = {
-        tr("L’assignation des raccourcis est un onglet. Elle active le mode Édition et la fenêtre reste déplaçable par son en-tête.",
-            "Assign keybindings is now a tab. It enters Edit mode, and you can still drag the window by its header."),
-        tr("Une option masque les raccourcis des cadres inactifs et affiche la touche seule sur les cadres actifs.",
-            "An option hides keybindings on inactive frames and shows the key without its modifier on active frames."),
-        tr("Survole un raccourci pendant l’assignation pour retrouver le bouton correspondant grâce au halo rouge.",
-            "Hover over a keybinding while assigning keys to find the matching button by its red halo."),
-        tr("Le groupe Base s’affiche en entier. Génère les raccourcis Maj, Ctrl ou Alt en un clic pour les cadres configurés.",
-            "See every Base bar at once. Generate Shift, Ctrl, or Alt shortcuts for your configured frames in one click."),
-    }
-    local releaseText = label(notes, table.concat(releaseLines, "\n\n"), 18, -53, "GameFontHighlight")
-    releaseText:SetWidth(644)
+    label(notes, tr("Notes de version", "Release notes"), 18, -17, "GameFontNormalLarge")
+    local releaseScroll = CreateFrame("ScrollFrame", nil, notes, "UIPanelScrollFrameTemplate")
+    releaseScroll:SetPoint("TOPLEFT", 18, -54)
+    releaseScroll:SetPoint("BOTTOMRIGHT", -34, 130)
+    local releaseContent = CreateFrame("Frame", nil, releaseScroll)
+    releaseContent:SetWidth(618)
+    releaseContent:SetHeight(1)
+    releaseScroll:SetScrollChild(releaseContent)
+    local entries = {}
+    for index, entry in ipairs(addon.releaseHistory) do
+        entries[index] = ("|cffffd100%s|r\n%s"):format(entry[1], entry[2])
+    end
+    local releaseText = label(releaseContent, table.concat(entries, "\n\n"), 0, 0, "GameFontHighlight")
+    releaseText:SetWidth(618)
     releaseText:SetJustifyH("LEFT")
     releaseText:SetWordWrap(true)
+    notes:SetScript("OnShow", function()
+        releaseContent:SetHeight(math.max(1, math.ceil(releaseText:GetStringHeight()) + 8))
+        releaseScroll:UpdateScrollChildRect()
+        releaseScroll:SetVerticalScroll(0)
+        if releaseScroll.ScrollBar then
+            releaseScroll.ScrollBar:SetShown(releaseScroll:GetVerticalScrollRange() > 0)
+        end
+    end)
     local issueURL = "https://legacy.curseforge.com/wow/addons/keylayers-by-rav-yoli/issues"
     local issueField, issueLabel = field(notes,
         tr("Copie ce lien avec Ctrl+C, puis ouvre-le dans ton navigateur.",
-            "Copy this link with Ctrl+C and open it in your browser."), 18, -314, 628, #issueURL)
+            "Copy this link with Ctrl+C and open it in your browser."), 18, -607, 628, #issueURL)
     issueField:SetScript("OnTextChanged", function(self)
         if self:GetText() ~= issueURL then self:SetText(issueURL) end
     end)
@@ -316,7 +318,7 @@ local function buildWindow()
     issueField:Hide()
     issueLabel:Hide()
     notes:SetScript("OnHide", function() issueField:ClearFocus() end)
-    button(notes, tr("Signaler un problème", "Report an issue"), 18, -274, 220, function()
+    button(notes, tr("Signaler un problème", "Report an issue"), 18, -568, 220, function()
         issueLabel:Show()
         issueField:Show()
         issueField:SetFocus()
@@ -412,18 +414,18 @@ local function buildWindow()
     activationPopup:Hide()
     closeActivation = function() activationPopup:Hide() end
     label(activationPopup, tr("Déclencheurs", "Triggers"), 16, -16, "GameFontNormalLarge")
-    label(activationPopup, tr("Choisis le mode et la touche de chaque cadre.", "Choose the mode and shortcut for each frame."),
+    label(activationPopup, tr("Les deux colonnes se règlent indépendamment.", "Configure the two columns independently."),
         16, -43, "GameFontHighlightSmall")
     label(activationPopup, tr("Maintien : surbrillance pendant l’appui, sans redirection des raccourcis.",
         "Hold: highlights while pressed, without remapping shortcuts."), 16, -60, "GameFontHighlightSmall")
-    label(activationPopup, tr("Interrupteur : verrouille le cadre et redirige ses raccourcis.",
-        "Toggle: locks the frame and redirects its shortcuts."), 16, -76, "GameFontHighlightSmall")
+    label(activationPopup, tr("Interrupteur : assigne un raccourci dédié pour verrouiller le cadre.",
+        "Toggle: assign a dedicated shortcut to lock the frame."), 16, -76, "GameFontHighlightSmall")
     local activationClose = CreateFrame("Button", nil, activationPopup, "UIPanelCloseButton")
     activationClose:SetPoint("TOPRIGHT", -3, -3)
     activationClose:SetScript("OnClick", closeActivation)
     label(activationPopup, tr("Cadre", "Frame"), 17, -102)
-    label(activationPopup, tr("Mode", "Mode"), 256, -102)
-    label(activationPopup, tr("Touche", "Key"), 407, -102)
+    label(activationPopup, tr("Maintien", "Hold"), 180, -102)
+    label(activationPopup, tr("Interrupteur", "Toggle"), 332, -102)
     local popupStatus = label(activationPopup, "", 16, -493, "GameFontHighlightSmall")
     popupStatus:SetWidth(570)
     popupStatus:SetJustifyH("LEFT")
@@ -436,113 +438,142 @@ local function buildWindow()
     scroll:SetScrollChild(content)
 
     label(activationPopup, tr("Touche Neutre (Base)", "Neutral key (Base)"), 16, -416)
-    local neutralHelp = label(activationPopup, tr(
-        "Assigne la touche ici ou cherche « Revenir au neutre » dans les raccourcis de KeyLayers.",
-        "Assign it here or find Return to neutral in the KeyLayers key bindings."),
-        16, -444, "GameFontHighlightSmall")
+    local neutralHelp = label(activationPopup, "", 16, -441, "GameFontHighlightSmall")
     neutralHelp:SetWidth(570)
+    neutralHelp:SetJustifyH("LEFT")
     neutralHelp:SetWordWrap(true)
-    label(activationPopup, tr("Cadre Base : Maintien avec Base ou Interrupteur avec Base (neutre).",
-        "Base frame: Hold with Base, or Toggle with Base (neutral)."),
-        16, -470, "GameFontHighlightSmall")
+    label(activationPopup, tr("Clic droit sur un raccourci pour le retirer.", "Right-click a shortcut to clear it."),
+        16, -478, "GameFontHighlightSmall")
     local capture = CreateFrame("Frame", nil, activationPopup)
     capture:SetAllPoints(activationPopup)
-    local capturing = false
-    local neutralControl, redrawActivation
-    local advanced = CreateFrame("Frame", nil, activationPopup, "BackdropTemplate")
-    advanced:SetSize(490, 173)
-    advanced:SetPoint("CENTER")
-    advanced:SetFrameLevel(activationPopup:GetFrameLevel() + 20)
-    advanced:EnableMouse(true)
-    advanced:SetBackdrop({
-        bgFile = [[Interface\Buttons\WHITE8X8]],
-        edgeFile = [[Interface\Buttons\WHITE8X8]], edgeSize = 1,
-    })
-    advanced:SetBackdropColor(0.07, 0.10, 0.14, 1)
-    advanced:SetBackdropBorderColor(0.42, 0.56, 0.70, 1)
-    advanced:Hide()
-    local advancedTitle = tr("Options avancées", "Advanced options")
-    label(advanced, advancedTitle, 16, -16, "GameFontNormalLarge")
-    local advancedClose = CreateFrame("Button", nil, advanced, "UIPanelCloseButton")
-    advancedClose:SetPoint("TOPRIGHT", -3, -3)
-    advancedClose:SetScript("OnClick", function() advanced:Hide() end)
-    local holdEnabled = check(advanced, tr("Appui bref ou prolongé", "Tap or hold"), 16, -43, function(enabled)
-        layout().timedHoldEnabled = enabled
-        addon.ResetTimedHold()
-    end)
-    local sensitivity = field(advanced, tr("Sensibilité du maintien", "Hold sensitivity"), 16, -82, 70, 4)
-    sensitivity:SetNumeric(true)
-    label(advanced, "ms", 101, -101, "GameFontHighlightSmall")
-    local holdHelp = label(advanced, tr(
-        "Ce paramètre définit la durée d’appui à partir de laquelle l’interrupteur passe en mode Maintien.",
-        "This setting determines how long you need to press a toggle for it to count as a hold."),
-        16, -136, "GameFontHighlightSmall")
-    holdHelp:SetWidth(452)
-    holdHelp:SetWordWrap(true)
-    sensitivity:SetScript("OnEditFocusLost", function(self)
-        local settings = layout()
-        settings.timedHoldSensitivity = addon.HoldSensitivity(tonumber(self:GetText()) or settings.timedHoldSensitivity)
-        self:SetText(tostring(settings.timedHoldSensitivity))
-        addon.ResetTimedHold()
-    end)
-    button(activationPopup, advancedTitle, 395, -18, 161, function()
-        cancelNeutralCapture()
-        holdEnabled:SetChecked(not not layout().timedHoldEnabled)
-        sensitivity:SetText(tostring(addon.HoldSensitivity(layout().timedHoldSensitivity)))
-        advanced:Show()
-    end)
-    local function refreshNeutralKey()
+    local captureLayer, captureControl, pressedKey, pressedShortcut, captureSave
+    local neutralControl, redrawActivation, cancelCaptureButton, targetFor
+    local function neutralText()
         local key = addon.NeutralKey()
-        neutralControl:SetText(key and (GetBindingText and GetBindingText(key, "KEY_") or key) or tr("Assigner la touche Neutre…", "Assign the neutral key…"))
+        return key and (GetBindingText and GetBindingText(key) or key) or tr("Assigner…", "Assign…")
     end
-    cancelNeutralCapture = function()
-        if not capturing then return end
-        capturing = false
+    local function needsNeutralKey()
+        if addon.NeutralKey() then return false end
+        for index in ipairs(layout().panels) do
+            if addon.PanelToggle(targetFor(index)) then return true end
+        end
+        return draft and not selected and addon.PanelToggle(draft)
+    end
+    local function refreshNeutralKey()
+        neutralControl:SetText(neutralText())
+        local missing = needsNeutralKey()
+        neutralHelp:SetText(missing and tr(
+            "Assigne une touche Neutre. En attendant, rappuie sur l’interrupteur actif pour revenir à Base.",
+            "Assign a Neutral key. Until then, press the active Toggle shortcut again to return to Base.")
+            or tr("La touche Neutre ramène à Base depuis n’importe quelle couche verrouillée.",
+                "The Neutral key returns to Base from any locked layer."))
+        if missing then neutralHelp:SetTextColor(1, 0.82, 0.36)
+        else neutralHelp:SetTextColor(1, 1, 1) end
+    end
+    cancelShortcutCapture = function()
+        if not captureLayer then return end
+        captureControl:SetText(captureControl == neutralControl and neutralText() or captureControl.previousText)
+        captureLayer, captureControl, pressedKey, pressedShortcut, captureSave = nil, nil, nil, nil, nil
         capture:EnableKeyboard(false)
-        refreshNeutralKey()
+        cancelCaptureButton:Hide()
+        popupStatus:SetWidth(570)
     end
-    activationPopup:SetScript("OnHide", function()
-        cancelNeutralCapture()
-        advanced:Hide()
+    activationPopup:SetScript("OnHide", cancelShortcutCapture)
+    cancelCaptureButton = button(activationPopup, CANCEL, 453, -484, 117, function()
+        cancelShortcutCapture()
+        popupStatus:SetText("")
     end)
-    neutralControl = button(activationPopup, "", 270, -409, 250, function()
+    cancelCaptureButton:Hide()
+
+    local function shortcutClick(control, mouseButton, layer, save)
+        cancelShortcutCapture()
         if InCombatLockdown() then
             popupStatus:SetText(tr("Modifie les raccourcis hors combat.", "Change shortcuts out of combat."))
             return
         end
-        capturing = true
+        if mouseButton == "RightButton" then
+            if addon.AssignNeutralKey(nil) then
+                popupStatus:SetText(tr("Raccourci retiré.", "Shortcut cleared."))
+                redrawActivation()
+            end
+            return
+        end
+        local focus = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+        if focus then focus:ClearFocus() end
+        control.previousText = control:GetText()
+        captureLayer, captureControl, captureSave = layer, control, save
         capture:EnableKeyboard(true)
         capture:SetPropagateKeyboardInput(false)
-        neutralControl:SetText(tr("Appuie sur une touche…", "Press a key…"))
-        popupStatus:SetText(tr("Échap annule. Choisis une touche libre.", "Escape cancels. Choose an unused key."))
+        control:SetText(tr("Appuie sur une touche…", "Press a key…"))
+        popupStatus:SetWidth(423)
+        popupStatus:SetText(tr("Appuie sur une touche ou clique sur Annuler.", "Press a key or click Cancel."))
+        cancelCaptureButton:Show()
+    end
+    neutralControl = button(activationPopup, "", 270, -409, 250, function(self, mouseButton)
+        shortcutClick(self, mouseButton, "base")
     end)
-    capture:SetScript("OnKeyDown", function(_, key)
-        if not capturing then return end
-        if key == "ESCAPE" then
-            cancelNeutralCapture()
-            popupStatus:SetText("")
-            return
+    neutralControl:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    local function confirmActivation(message, accept)
+        closeActivation()
+        local function reopen()
+            if window:IsVisible() and config:IsShown() and not InCombatLockdown() then
+                openActivation()
+                return true
+            end
         end
-        if key:match("^[LR]CTRL$") or key:match("^[LR]SHIFT$") or key:match("^[LR]ALT$") then return end
-        if IsAltKeyDown() then key = "ALT-" .. key end
-        if IsShiftKeyDown() then key = "SHIFT-" .. key end
-        if IsControlKeyDown() then key = "CTRL-" .. key end
-        if key:match("ALT%-F4$") then
-            popupStatus:SetText(tr("Alt + F4 à éviter (ferme le jeu)", "Avoid Alt + F4 (closes the game)"))
-            return
-        end
-        local ok, reason = addon.AssignNeutralKey(key)
+        confirm(message, function()
+            if reopen() then accept() end
+        end, reopen)
+    end
+    local function saveShortcut(layer, key, replace, apply, done, caption)
+        local ok, reason, owner
+        if apply then ok, reason, owner = apply(layer, key, replace)
+        else ok, reason, owner = addon.AssignNeutralKey(key, replace) end
+        cancelShortcutCapture()
         if ok then
-            cancelNeutralCapture()
             popupStatus:SetText(tr("Raccourci enregistré.", "Shortcut saved."))
-            redrawActivation()
+            if done then done() else redrawActivation() end
+            if layer ~= "base" and needsNeutralKey() then
+                shortcutClick(neutralControl, "LeftButton", "base")
+                popupStatus:SetText(tr("Saisis la touche Neutre, ou clique sur Annuler.",
+                    "Press the Neutral key, or click Cancel."))
+            end
         elseif reason == "occupied" then
-            popupStatus:SetText(tr("Cette touche est déjà utilisée. Choisis-en une autre.", "This key is already in use. Choose another."))
+            confirmActivation(tr(
+                "%s est affecté à « %s ». Réattribuer cette touche à « %s » ?",
+                "%s is assigned to “%s”. Reassign this key to “%s”?")
+                :format(GetBindingText and GetBindingText(key) or key, addon.ShortcutActionLabel(owner),
+                    caption or tr("Revenir au neutre", "Return to neutral")),
+                function()
+                    saveShortcut(layer, key, owner, apply, done, caption)
+                end)
+        elseif reason == "temporary" then
+            popupStatus:SetText(tr("Touche temporairement utilisée par %s.", "Key temporarily used by %s.")
+                :format(addon.ShortcutActionLabel(owner)))
         else
-            cancelNeutralCapture()
             popupStatus:SetText(reason == "combat"
                 and tr("Modifie les raccourcis hors combat.", "Change shortcuts out of combat.")
                 or tr("Cette touche ne peut pas être assignée.", "This key cannot be assigned."))
+        end
+    end
+    capture:SetScript("OnKeyDown", function(_, key)
+        if not captureLayer or pressedKey or key == "UNKNOWN" then return end
+        if key:match("^[LR]CTRL$") or key:match("^[LR]SHIFT$") or key:match("^[LR]ALT$")
+            or key == "CTRL" or key == "SHIFT" or key == "ALT" then return end
+        if key == "F4" and IsAltKeyDown() then
+            popupStatus:SetText(tr("Alt + F4 à éviter (ferme le jeu)", "Avoid Alt + F4 (closes the game)"))
+            return
+        end
+        pressedKey = key
+        if IsShiftKeyDown() then key = "SHIFT-" .. key end
+        if IsControlKeyDown() then key = "CTRL-" .. key end
+        if IsAltKeyDown() then key = "ALT-" .. key end
+        pressedShortcut = key
+    end)
+    capture:SetScript("OnKeyUp", function(_, key)
+        if captureLayer and key == pressedKey then
+            local save = captureSave or saveShortcut
+            save(captureLayer, pressedShortcut)
         end
     end)
 
@@ -552,101 +583,131 @@ local function buildWindow()
         latch = tr("Interrupteur", "Toggle"),
     }
     local rows = {}
-    local function targetFor(index)
+    targetFor = function(index)
         if draft and (index == selected or index == 0) then return draft end
         return layout().panels[index]
     end
-    local function keyAvailable(index, mode, key)
-        if key == "unmodified" then return mode == "hold" end
-        if key == "base" and mode ~= "latch" then return false end
-        if mode ~= "latch" then return true end
-        if key == "never" or key == "always" then return false end
-        for otherIndex in ipairs(layout().panels) do
-            local other = targetFor(otherIndex)
-            if otherIndex ~= index and addon.ActivationMode(other) == "latch" and other.layer == key then
-                return false
-            end
-        end
-        return index == 0 or selected ~= nil or not draft
-            or addon.ActivationMode(draft) ~= "latch" or draft.layer ~= key
-    end
-    local function setActivation(index, mode, key, acknowledged)
+    local function setHold(index, key, approved)
+        cancelShortcutCapture()
         if InCombatLockdown() then
             popupStatus:SetText(tr("Modifie les raccourcis hors combat.", "Change shortcuts out of combat."))
             return
         end
-        if not keyAvailable(index, mode, key) then
-            popupStatus:SetText(tr("Cette touche est déjà utilisée par un autre interrupteur.",
-                "Another switch already uses this shortcut."))
-            return
-        end
-        if mode == "latch" and not acknowledged and not (KeyLayersNotices and KeyLayersNotices.switch) then
-            closeActivation()
-            confirm(tr(
-                "Interrupteur verrouille le cadre et redirige temporairement ses touches d’action. Tes raccourcis enregistrés dans WoW et Bartender4 restent intacts.",
-                "Toggle locks the frame and temporarily redirects its action keys. Your saved WoW and Bartender4 bindings stay intact."),
-                function()
-                    KeyLayersNotices = KeyLayersNotices or {}
-                    KeyLayersNotices.switch = true
-                    openActivation()
-                    setActivation(index, mode, key, true)
-                end)
-            return
-        end
         local target = targetFor(index)
-        target.activationMode, target.layer = mode, key
-        local saved = layout().panels[index]
-        if saved then
-            saved.activationMode, saved.layer = mode, key
-            addon.SyncSwitch(true)
+        if not target then return end
+        local matches, names = {}, {}
+        local function find(otherIndex)
+            local other = targetFor(otherIndex)
+            if otherIndex ~= index and other and addon.HoldLayer(other) == key then
+                matches[otherIndex] = other
+                names[#names + 1] = other.name
+            end
         end
+        if key and key ~= "unmodified" then
+            for otherIndex in ipairs(layout().panels) do find(otherIndex) end
+            if not selected then find(0) end
+        end
+        for otherIndex, other in pairs(matches) do
+            if not approved or approved[otherIndex] ~= other then
+                confirmActivation(tr(
+                    "%s (%s) est utilisé par « %s ». Réserver ce déclencheur à « %s » ?",
+                    "%s (%s) is used by “%s”. Assign this trigger only to “%s”?")
+                    :format(addon.LayerLabel(key), modeLabels.hold, table.concat(names, ", "), target.name),
+                    function()
+                        if targetFor(index) == target then setHold(index, key, matches) end
+                    end)
+                return
+            end
+        end
+        local function set(panel, layer)
+            if addon.ActivationMode(panel) == "latch" then panel.toggleLayer = panel.layer end
+            panel.activationMode, panel.layer = layer and "hold" or "none", layer or "never"
+        end
+        local function update(otherIndex, layer)
+            local other, saved = targetFor(otherIndex), layout().panels[otherIndex]
+            set(other, layer)
+            if saved and saved ~= other then set(saved, layer) end
+        end
+        for otherIndex in pairs(matches) do update(otherIndex, nil) end
+        update(index, key)
+        addon.SyncSwitch(true)
         popupStatus:SetText("")
         redrawActivation()
         refresh()
         refreshPreview()
     end
-    local function activationKeyLabel(key)
-        return key == "base" and tr("Base (neutre)", "Base (neutral)") or addon.LayerLabel(key)
+
+    local function updateToggle(index, toggle)
+        local function set(panel)
+            if addon.ActivationMode(panel) == "latch" then
+                panel.activationMode, panel.layer = "none", "never"
+            end
+            panel.toggleId = type(toggle) == "number" and toggle or nil
+            panel.toggleLayer = type(toggle) == "string" and toggle or nil
+        end
+        local target, saved = targetFor(index), layout().panels[index]
+        set(target)
+        if saved and saved ~= target then set(saved) end
+        addon.SyncSwitch(true)
+        redrawActivation()
+        refresh()
+        refreshPreview()
     end
+
+    local function captureToggle(row)
+        local index, target = row.index, targetFor(row.index)
+        shortcutClick(row.shortcut, "LeftButton", true, function(_, key)
+            cancelShortcutCapture()
+            if targetFor(index) ~= target then return end
+            local toggle = addon.PanelToggle(target)
+            -- Base's reset shortcut is shared; a frame toggle is its own action.
+            if not toggle or toggle == "base" then toggle = addon.NewPanelToggleId() end
+            saveShortcut(toggle, key, nil, function(id, shortcut, replace)
+                local current = targetFor(index)
+                if current ~= target then return false, "invalid" end
+                return addon.AssignPanelToggleKey(target, id, shortcut, replace)
+            end, function() updateToggle(index, toggle) end,
+                tr("Verrouiller %s", "Toggle %s"):format(target.name))
+        end)
+    end
+    local function buildHoldMenu(root, row)
+        if not activationPopup:IsShown() then return end
+        local function current() return addon.HoldLayer(targetFor(row.index)) or "never" end
+        radio(root, modeLabels.none, "never", current, function() setHold(row.index, nil) end)
+        for _, layer in ipairs(addon.layers) do
+            local key = layer == "base" and "unmodified" or layer
+            radio(root, addon.LayerLabel(key), key, current, function() setHold(row.index, key) end)
+        end
+    end
+
     local function makeActivationRow(position)
         local row = CreateFrame("Frame", nil, content)
         row:SetSize(550, 32)
         row:SetPoint("TOPLEFT", 0, -(position - 1) * 32)
         row.caption = label(row, "", 3, -8, "GameFontHighlight")
-        row.caption:SetWidth(220)
+        row.caption:SetWidth(150)
         row.caption:SetJustifyH("LEFT")
         row.caption:SetWordWrap(false)
-        row.mode = menu(row, 241, -2, 136, function(root)
-            if not activationPopup:IsShown() then return end
-            for _, mode in ipairs({"none", "hold", "latch"}) do
-                radio(root, modeLabels[mode], mode, function()
-                    return addon.ActivationMode(targetFor(row.index))
-                end, function(value)
-                    local key = targetFor(row.index).layer
-                    if value == "none" then key = "never"
-                    elseif key == "always" or key == "never" or not keyAvailable(row.index, value, key) then
-                        key = nil
-                        for _, candidate in ipairs(addon.layers) do
-                            if keyAvailable(row.index, value, candidate) then key = candidate; break end
-                        end
-                    end
-                    if key then setActivation(row.index, value, key)
-                    else popupStatus:SetText(tr("Aucune touche disponible.", "No shortcut available.")) end
-                end)
+        row.hold = menu(row, 165, -2, 139, function(root) buildHoldMenu(root, row) end)
+        row.shortcut = button(row, "", 317, -3, 229, function(_, mouseButton)
+            if mouseButton ~= "RightButton" then
+                captureToggle(row)
+                return
             end
-        end)
-        row.key = menu(row, 392, -2, 155, function(root)
-            if not activationPopup:IsShown() then return end
+            cancelShortcutCapture()
+            if InCombatLockdown() then
+                popupStatus:SetText(tr("Modifie les raccourcis hors combat.", "Change shortcuts out of combat."))
+                return
+            end
             local target = targetFor(row.index)
-            local mode = addon.ActivationMode(target)
-            if mode == "none" then return end
-            for _, layer in ipairs(addon.layers) do
-                local key = mode == "hold" and layer == "base" and "unmodified" or layer
-                local option = root:CreateRadio(activationKeyLabel(key), function() return target.layer == key end,
-                    function() setActivation(row.index, mode, key) end)
-                if not keyAvailable(row.index, mode, key) then option:SetEnabled(false) end
+            local toggle = addon.PanelToggle(target)
+            if not toggle then return end
+            if toggle == "base" or addon.AssignPanelToggleKey(target, toggle, nil) then
+                updateToggle(row.index, nil)
+                popupStatus:SetText(tr("Raccourci retiré.", "Shortcut cleared."))
             end
         end)
+        row.shortcut:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         return row
     end
     redrawActivation = function()
@@ -658,27 +719,22 @@ local function buildWindow()
             if not row then row = makeActivationRow(position); rows[position] = row end
             row.index = position > count and 0 or position
             local target = targetFor(row.index)
-            local mode = addon.ActivationMode(target)
+            local hold, key = addon.HoldLayer(target), addon.PanelToggleKey(target)
             row.caption:SetText(target.name)
-            row.mode:OverrideText(modeLabels[mode])
-            local keyText = mode == "none" and "—" or activationKeyLabel(target.layer)
-            if mode ~= "none" and target.layer == "base" then
-                local key = addon.NeutralKey()
-                if key then keyText = keyText .. " · " .. (GetBindingText and GetBindingText(key, "KEY_") or key) end
-            end
-            row.key:OverrideText(keyText)
-            row.key:SetEnabled(mode ~= "none")
+            row.hold:OverrideText(hold and addon.LayerLabel(hold) or "—")
+            row.shortcut:SetText(key and (GetBindingText and GetBindingText(key) or key)
+                or tr("Assigner…", "Assign…"))
             row:Show()
         end
         for position = total + 1, #rows do rows[position]:Hide() end
         content:SetHeight(math.max(1, total * 32))
+        refreshNeutralKey()
         if total == 0 then popupStatus:SetText(tr("Crée un cadre pour commencer.", "Create a frame to get started.")) end
     end
     openActivation = function()
         popupStatus:SetText("")
         closeHints()
         activationPopup:Show()
-        refreshNeutralKey()
         redrawActivation()
     end
 
@@ -1107,8 +1163,8 @@ local function buildWindow()
         for index, source in ipairs(layout().panels) do
             if index ~= selected then
                 root:CreateButton(source.name, function()
-                    local copyToDefault = draft.useDefaultStyle or addon.ActivationMode(draft) == "none"
-                    local sourceHasActivatedStyle = addon.ActivationMode(source) ~= "none" and not source.useDefaultStyle
+                    local copyToDefault = draft.useDefaultStyle or (not addon.HoldLayer(draft) and not addon.PanelToggle(draft))
+                    local sourceHasActivatedStyle = (addon.HoldLayer(source) or addon.PanelToggle(source)) and not source.useDefaultStyle
                     if copyToDefault then inactive = true end
                     local sourceStyle = source
                     if not sourceHasActivatedStyle or (inactive and not copyToDefault) then
@@ -1189,8 +1245,10 @@ local function buildWindow()
         copyStyle:SetEnabled(#layout().panels > (selected and 1 or 0))
         for key in pairs(styleControls) do updateControl(key) end
         kind:OverrideText(draft.kind == "chat" and chatLabel(draft.chatId) or kinds[draft.kind])
-        local mode = addon.ActivationMode(draft)
-        layer:SetText(mode == "none" and modeLabels.none or modeLabels[mode] .. " · " .. addon.LayerLabel(draft.layer))
+        local hold, key = addon.HoldLayer(draft), addon.PanelToggleKey(draft)
+        local holdText = hold and addon.LayerLabel(hold)
+        local keyText = key and (GetBindingText and GetBindingText(key) or key)
+        layer:SetText(holdText and keyText and (holdText .. " / " .. keyText) or holdText or keyText or modeLabels.none)
         local selectedBars = addon.BarSelection(draft)
         barGroup:SetShown(selectedBars ~= nil)
         freeGroup:SetShown(draft.kind == "free")
@@ -1289,7 +1347,7 @@ local function buildWindow()
 
     window:RegisterEvent("PLAYER_REGEN_DISABLED")
     window:SetScript("OnEvent", function()
-        cancelNeutralCapture()
+        cancelShortcutCapture()
         if editing then setEditing(false) end
         if assignment:IsShown() then selectTab(config) end
     end)
@@ -1346,7 +1404,6 @@ local function buildWindow()
             KeyLayersLayout = addon.Copy(snapshot)
             KeyLayersLayout.minimapAngle = snapshot.minimapAngle or minimapAngle
             KeyLayersLayout.neutralKey = nil
-            activeHotkeys:SetChecked(not not layout().activeHotkeysOnly)
             addon.MigrateActivation(layout())
             addon.SyncSwitch(true)
             local restored = snapshot.neutralKey == nil or addon.AssignNeutralKey(snapshot.neutralKey)

@@ -1,10 +1,10 @@
 # Builds an installable KeyLayers test archive from local repository files.
 [CmdletBinding()]
 param(
-    [string]$RepoPath = (Get-Location).Path,
+    [string]$RepoPath = (Join-Path $PSScriptRoot '..'),
     [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9-]*$')]
     [string]$Version,
-    [string]$OutputDirectory = [IO.Path]::GetTempPath()
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\dist')
 )
 
 Set-StrictMode -Version Latest

@@ -32,10 +32,9 @@ local function eligibleBars(commands)
     local bases, targets, seenBase = {}, {}, {}
     local selfCast = GetModifiedClick and GetModifiedClick("SELFCAST")
     for _, panel in ipairs(KeyLayersLayout.panels) do
-        local mode = addon.ActivationMode(panel)
-        local base = (mode == "hold" and panel.layer == "unmodified")
-            or (mode == "latch" and panel.layer == "base")
-        local prefix = mode ~= "none" and prefixes[panel.layer]
+        local layer = addon.HoldLayer(panel) or addon.PanelToggle(panel)
+        local base = layer == "unmodified" or layer == "base"
+        local prefix = prefixes[layer]
         local bars = addon.BarSelection(panel)
         if bars and (base or prefix) then
             local group = {}
@@ -74,7 +73,7 @@ local function eligibleBars(commands)
                     end
                 else
                     entry.sourceIndex = index
-                    entry.label = entry.label .. " (" .. addon.LayerLabel(panel.layer) .. ")"
+                    entry.label = entry.label .. " (" .. addon.LayerLabel(layer) .. ")"
                     if not canUsePrefix(prefix, selfCast) then
                         entry.blocked = tr("auto-incantation", "self-cast")
                     end
@@ -222,9 +221,16 @@ local function openGameBindings()
 end
 
 function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
-    local window = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    window:SetAllPoints()
-    window:Hide()
+    local assistant = CreateFrame("Frame", nil, parent)
+    assistant:SetAllPoints()
+    assistant:Hide()
+
+    local window = CreateFrame("Frame", nil, assistant)
+    window:SetPoint("TOPLEFT", 0, -36)
+    window:SetPoint("BOTTOMRIGHT")
+    local stylePage = CreateFrame("Frame", nil, assistant)
+    stylePage:SetAllPoints(window)
+    stylePage:Hide()
 
     local function text(value, x, y)
         local item = ui.label(window, value, x, y, "GameFontHighlightSmall")
@@ -245,7 +251,7 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
     local redraw, refreshSlots
     local captureBar, captureSlot
     local barRows, preview, generators = {}, {}, {}
-    local status = text("", 18, -602)
+    local status = text("", 18, -576)
     local hint = text("", 18, -103)
 
     local function makeHalo(parent, strata)
@@ -552,7 +558,7 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
         apply:SetEnabled(actionable and not InCombatLockdown())
     end
 
-    ui.button(window, tr("Ouvrir les raccourcis de WoW", "Open WoW keybindings"), 18, -639, 230, function()
+    ui.button(window, tr("Ouvrir les raccourcis de WoW", "Open WoW keybindings"), 18, -620, 230, function()
         cancelCapture()
         if openGameBindings() then
             optionsWindow:Hide()
@@ -562,7 +568,7 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
                 "In WoW, open Escape → Options → Keybindings."))
         end
     end)
-    apply = ui.button(window, tr("Appliquer", "Apply"), 502, -639, 160, function()
+    apply = ui.button(window, tr("Appliquer", "Apply"), 502, -620, 160, function()
         cancelCapture()
         local rows = previewChanges(bases, targets, selected, pending, approved)
         local ok, changed = saveChanges(rows)
@@ -577,17 +583,29 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
         end
         redraw()
     end)
-    function window:Open()
+    local refreshStyle = addon.CreateHotkeyStylePage(stylePage, ui)
+    local showAssignment, showStyle
+    local function selectPage(showingStyle, resetScroll)
+        window:SetShown(not showingStyle)
+        stylePage:SetShown(showingStyle)
+        showAssignment(not showingStyle, true)
+        showStyle(showingStyle, true)
+        if showingStyle then refreshStyle() else redraw(resetScroll) end
+    end
+    showAssignment = ui.tab(assistant, tr("Assignation", "Assignment"), 18, -3, 145, function() selectPage(false) end)
+    showStyle = ui.tab(assistant, tr("Style", "Style"), 168, -3, 145, function() selectPage(true) end)
+
+    function assistant:Open()
         bases, targets = eligibleBars(nativeCommands())
         selected, pending, approved = {}, {}, {}
         filter = false
         self:Show()
         status:SetText("")
-        redraw(true)
+        selectPage(false, true)
         if not bases[1] then
             status:SetText(tr("Enregistre un cadre lié à une barre avec le déclencheur Base.",
                 "Save a frame linked to an action bar with the Base trigger."))
         end
     end
-    return window
+    return assistant
 end

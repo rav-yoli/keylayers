@@ -4,7 +4,7 @@ Ce guide s’utilise sous Windows, dans le terminal PowerShell de VS Code à la 
 
 ## 1. Préparer et tester la version
 
-Place `Publish-KeyLayers.ps1` à la racine du dépôt. Ajoute cette règle dans le `.gitignore` existant, sur sa propre ligne.
+Les scripts PowerShell se trouvent dans `scripts/`. Ajoute cette règle dans le `.gitignore` existant, sur sa propre ligne.
 
 ```gitignore
 dist/*
@@ -20,7 +20,7 @@ git var GIT_COMMITTER_IDENT
 Pour préparer un ZIP local avec le numéro visé, utilise le script de test existant.
 
 ```powershell
-.\Build-KeyLayersTestZip.ps1 -Version 1.1.0b -OutputDirectory .\dist
+.\scripts\Build-KeyLayersTestZip.ps1 -Version 1.1.0b -OutputDirectory .\dist
 ```
 
 Installe et teste le ZIP en jeu. Le script de test applique le numéro de version aux fichiers dans l’archive.
@@ -32,7 +32,7 @@ Si la version de **WoW Forever** ciblée change, vérifie la compatibilité en j
 Une fois les tests terminés, lance la commande de publication.
 
 ```powershell
-.\Publish-KeyLayers.ps1 -Version 1.1.0b
+.\scripts\Publish-KeyLayers.ps1 -Version 1.1.0b
 ```
 
 Le script vérifie l’état de `main` et la disponibilité du tag en local et sur GitHub. Il met à jour `## Version:` dans le `.toc`, la version de secours dans `Core.lua` et le titre du `README.md` si celui-ci affiche un numéro. Il crée le commit `Release KeyLayers 1.1.0b`, crée le tag annoté `v1.1.0b`, puis pousse `main` et ce tag ensemble. [Documentation Git sur le push atomique](https://git-scm.com/docs/git-push#Documentation/git-push.txt---atomic)

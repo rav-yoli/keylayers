@@ -121,15 +121,15 @@ Under **Layout** for a free frame, click the copy icon next to **X**, **Y**, **W
 
 ## Triggers
 
-Open **Triggers** and choose a mode for each frame. KeyLayers supports **Ctrl**, **Shift**, and **Alt**, on their own or in combinations such as **Ctrl + Shift**, **Ctrl + Alt**, or **Ctrl + Shift + Alt**.
+Open **Triggers** to configure **Hold** and **Toggle** independently for each frame. Confirm any shortcut reassignment after reviewing its current assignment. KeyLayers supports **Ctrl**, **Shift**, and **Alt**, on their own or in combinations such as **Ctrl + Shift**, **Ctrl + Alt**, or **Ctrl + Shift + Alt**.
 
 - **None** keeps the frame visible.
 - **Hold** highlights the frame while you hold the modifier. This is handy for a modifier you already use elsewhere, such as Alt for self-cast.
-- **Toggle** keeps a layer active after you release its key and can redirect its action keybinds. Press the same key or combination again to return to Base. Toggle is experimental and each toggle frame needs its own shortcut.
+- **Toggle** uses a **Dedicated shortcut** to lock a layer and redirect its action keybinds. For example, assign F8 to Ctrl + Shift. Press F8 again to unlock.
 
 Changes apply right away to saved frames. For a new frame, click **Save frame** after choosing its mode.
 
-Under **Triggers → Advanced options**, turn on **Tap or hold**. Out of combat, a tap uses the usual toggle behavior. A longer press activates the layer until you release the key, then restores the previous layer. This works with modifiers or combinations set to **Toggle**. **Hold sensitivity** sets the threshold from 50 to 1,000 ms, with 150 ms as the default. The setting is saved with your profile. In combat, toggles use their standard behavior.
+Physical modifiers keep their Hold behavior while a layer is locked. Assign dedicated shortcuts to existing Toggle frames after updating.
 
 For your base frame, choose **Toggle → Base (neutral)**. Base is active at startup when no modifier is held and no layer is locked. Assign an unused key under **Neutral key (Base)**, or find **Return to neutral** under WoW’s **Options → Keybindings → KeyLayers**.
 

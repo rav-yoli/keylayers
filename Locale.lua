@@ -150,11 +150,8 @@ local translations = {
     {"This frame follows its target. Move the target to adjust the frame.","Der Rahmen folgt seinem Ziel. Verschiebe das Ziel, um den Rahmen anzupassen.","El marco sigue a su objetivo. Mueve el objetivo para ajustar el marco.","框体会跟随目标。移动目标即可调整框体。","框體會跟隨目標。移動目標即可調整框體。"},
     {"Ctrl","Strg","Ctrl","Ctrl","Ctrl"},
     {"Advanced options","Erweiterte Optionen","Opciones avanzadas","高级选项","進階選項"},
-    {"Tap or hold","Kurz drücken oder halten","Toque o pulsación larga","轻按或长按","短按或長按"},
-    {"Hold sensitivity","Halteempfindlichkeit","Sensibilidad de pulsación larga","长按灵敏度","長按靈敏度"},
     {"Frame being edited","Aktuell bearbeiteter Rahmen","Marco en edición","正在编辑的框体","正在編輯的框體"},
     {"The settings below apply to this frame.","Die Einstellungen unten gelten für diesen Rahmen.","Los ajustes de abajo se aplican a este marco.","下方设置应用于此框体。","下方設定適用於此框體。"},
-    {"This setting determines how long you need to press a toggle for it to count as a hold.","Diese Einstellung legt fest, wie lange du einen Umschalter drücken musst, damit der Tastendruck als Halten gilt.","Este ajuste determina cuánto tiempo debes pulsar un interruptor para que se considere una pulsación larga.","此设置决定切换键需要按住多久才算长按。","此設定決定切換鍵需要按住多久才算長按。"},
     {"Assign keybindings","Tasten belegen","Asignar atajos","设置快捷键","設定快捷鍵"},
     {"This tool changes saved WoW keybindings for your character or account, depending on your game settings.","Dieses Werkzeug ändert je nach Spieleinstellung die in WoW gespeicherte Tastenbelegung des Charakters oder des Accounts.","Esta herramienta cambia los atajos guardados en WoW para tu personaje o cuenta según los ajustes del juego.","此工具会修改 WoW 保存的角色或账号快捷键，具体范围取决于游戏设置。","此工具會修改 WoW 儲存的角色或帳號快捷鍵，適用範圍取決於遊戲設定。"},
     {"Place and save your bars first. Click a Base button and press a key. Modifiers are ignored during capture.","Platziere und speichere zuerst deine Leisten. Klicke auf eine Basis-Schaltfläche und drücke eine Taste. Zusatztasten werden bei der Eingabe ignoriert.","Primero coloca y guarda tus barras. Pulsa un botón de Base y luego una tecla. Los modificadores se ignoran al capturar la tecla.","请先摆放并保存动作条。点击基础动作条上的按钮，再按一个键。录入时忽略修饰键。","請先擺放並儲存快捷列。點擊基礎快捷列上的按鈕，再按一個鍵。輸入時忽略修飾鍵。"},
@@ -188,9 +185,46 @@ local translations = {
     {"Report an issue","Problem melden","Informar de un problema","报告问题","回報問題"},
     {"Copy this link with Ctrl+C and open it in your browser.","Kopiere den Link mit Strg+C und öffne ihn im Browser.","Copia el enlace con Ctrl+C y ábrelo en tu navegador.","按 Ctrl+C 复制链接，再在浏览器中打开。","按 Ctrl+C 複製連結，再於瀏覽器中開啟。"},
     {"Assign keybindings is now a tab. It enters Edit mode, and you can still drag the window by its header.","Die Tastenbelegung hat jetzt einen Reiter. Er öffnet den Bearbeitungsmodus, und das Fenster lässt sich an der Titelleiste verschieben.","Asignar atajos tiene su propia pestaña. Activa el modo edición y puedes mover la ventana arrastrando la cabecera.","快捷键设置现在有独立标签页。打开后自动进入编辑模式，仍可拖动标题栏移动窗口。","快捷鍵設定現在有獨立分頁。開啟後會自動進入編輯模式，仍可拖曳標題列移動視窗。"},
-    {"An option hides keybindings on inactive frames and shows the key without its modifier on active frames.","Eine Option blendet Tasten auf inaktiven Rahmen aus und zeigt auf aktiven Rahmen nur die Taste ohne Zusatztaste.","Una opción oculta los atajos en marcos inactivos y muestra solo la tecla, sin el modificador, en marcos activos.","可隐藏未激活框体的快捷键，并在激活框体上仅显示按键，不显示修饰键。","可隱藏非啟用框體的快捷鍵，並在啟用框體上只顯示按鍵，不顯示修飾鍵。"},
+    {"Under Assign keybindings → Style, show only the key without modifiers on active frames and adjust its font, size, and color.","Unter Tasten belegen → Stil kannst du auf aktiven Rahmen nur die Taste ohne Zusatztasten anzeigen und Schriftart, Größe und Farbe ändern.","En Asignar atajos → Estilo, muestra solo la tecla sin modificadores de los marcos activos y ajusta su fuente, tamaño y color.","在设置快捷键 → 样式中，可以仅显示激活框体上不带修饰键的按键，并调整字体、大小和颜色。","在設定快捷鍵 → 樣式中，可以只顯示啟用框體上不含修飾鍵的按鍵，並調整字型、大小和顏色。"},
     {"Hover over a keybinding while assigning keys to find the matching button by its red halo.","Zeige beim Belegen auf eine Taste. Ein roter Leuchtrand markiert die zugehörige Schaltfläche.","Pasa el cursor sobre un atajo mientras asignas teclas para encontrar el botón correspondiente con un halo rojo.","设置快捷键时，将鼠标悬停在快捷键上，红色光圈会标出对应按钮。","設定快捷鍵時，將滑鼠移到快捷鍵上，紅色光暈會標示對應按鈕。"},
     {"See every Base bar at once. Generate Shift, Ctrl, or Alt shortcuts for your configured frames in one click.","Sieh alle Basisleisten auf einmal. Erzeuge mit einem Klick Umschalt-, Strg- oder Alt-Kürzel für deine Rahmen.","Muestra todas las barras Base. Genera atajos con Mayús, Ctrl o Alt para tus marcos con un clic.","同时查看所有基础动作条，一键为已配置的框体生成 Shift、Ctrl 或 Alt 快捷键。","同時檢視所有基礎快捷列，一鍵為已設定的框體產生 Shift、Ctrl 或 Alt 快捷鍵。"},
+    {"Style","Stil","Estilo","样式","樣式"},
+    {"Assignment","Tastenbelegung","Asignación","按键分配","按鍵分配"},
+    {"Keybinding style","Stil der Tastenanzeige","Estilo de los atajos","快捷键样式","快捷鍵樣式"},
+    {"Chat font","Chat-Schrift","Fuente del chat","聊天字体","聊天字型"},
+    {"Number font","Ziffernschrift","Fuente numérica","数字字体","數字字型"},
+    {"This style applies to key labels on active bars when the option is checked.","Wenn die Option aktiv ist, gilt dieser Stil für die Tastenanzeige auf aktiven Leisten.","Si activas la opción, este estilo se aplica a las teclas de las barras activas.","勾选后，此样式应用于激活动作条上的按键标签。","勾選後，此樣式會套用於啟用快捷列上的按鍵標籤。"},
+    {"Font","Schriftart","Fuente","字体","字型"},
+    {"Text size","Schriftgröße","Tamaño del texto","文字大小","文字大小"},
+    {"Text color","Schriftfarbe","Color del texto","文字颜色","文字顏色"},
+    {"Choose…","Auswählen…","Elegir…","选择…","選擇…"},
+    {"Reset","Zurücksetzen","Restablecer","重置","重設"},
+    {"Key label preview","Vorschau der Tastenanzeige","Vista previa de la tecla","按键标签预览","按鍵標籤預覽"},
+    {"Toggle %s","%s umschalten","Alternar %s","切换 %s","切換 %s"},
+    {"Toggle: assign a dedicated shortcut to lock the frame.","Umschalter: Weise eine eigene Taste zu, um den Rahmen zu fixieren.","Interruptor: asigna un atajo exclusivo para fijar el marco.","切换：分配专用快捷键来锁定框体。","切換：分配專用快捷鍵來鎖定框體。"},
+    {"Dedicated shortcut","Eigene Taste","Atajo exclusivo","专用快捷键","專用快捷鍵"},
+    {"Right-click a shortcut to clear it.","Rechtsklick entfernt die Tastenbelegung.","Haz clic derecho en un atajo para borrarlo.","右键点击快捷键可清除绑定。","按右鍵點擊快捷鍵可清除綁定。"},
+    {"Assign…","Belegen…","Asignar…","分配…","分配…"},
+    {"Shortcut cleared.","Tastenbelegung entfernt.","Atajo borrado.","快捷键已清除。","快捷鍵已清除。"},
+    {"In Triggers, assign a dedicated shortcut to each Toggle layer. For example, F8 can lock Ctrl + Shift. Press it again to unlock. Physical modifiers remain available for Hold mode.","Weise unter Auslöser jeder Umschaltebene eine eigene Taste zu. F8 kann etwa Strg + Umschalt fixieren. Erneutes Drücken hebt die Fixierung auf. Physische Zusatztasten sind weiterhin für den Haltemodus verfügbar.","En Activadores, asigna un atajo exclusivo a cada capa de Interruptor. Por ejemplo, F8 puede fijar Ctrl + Mayús. Púlsalo otra vez para desbloquear. Los modificadores físicos siguen disponibles en el modo Mantener.","在触发条件中为每个切换层分配专用快捷键。例如，F8 可以锁定 Ctrl + Shift，再按一次即可解锁。实体修饰键仍可用于按住模式。","在觸發條件中為每個切換層分配專用快捷鍵。例如，F8 可以鎖定 Ctrl + Shift，再按一次即可解鎖。實體修飾鍵仍可用於按住模式。"},
+    {"Use one of the two columns for each frame.","Verwende für jeden Rahmen eine der beiden Spalten.","Usa una de las dos columnas para cada marco.","每个框体只能使用两列中的一列。","每個框體只能使用兩欄中的一欄。"},
+    {"%s is assigned to “%s”. Reassign this key to “%s”?","%s ist „%s“ zugewiesen. Diese Taste „%s“ zuweisen?","%s está asignado a «%s». ¿Reasignar esta tecla a «%s»?","%s 已分配给“%s”。要将此键重新分配给“%s”吗？","%s 已分配給「%s」。要將此鍵重新分配給「%s」嗎？"},
+    {"%s (%s) is used by “%s”. Assign this trigger only to “%s”?","%s (%s) wird von „%s“ verwendet. Diesen Auslöser nur „%s“ zuweisen?","%s (%s) se usa en «%s». ¿Asignar este activador solo a «%s»?","%s（%s）已由“%s”使用。要将此触发条件仅分配给“%s”吗？","%s（%s）已由「%s」使用。要將此觸發條件僅分配給「%s」嗎？"},
+    {"Key temporarily used by %s.","Taste vorübergehend durch %s belegt.","Tecla en uso temporal por %s.","此按键暂时由 %s 使用。","此按鍵暫時由 %s 使用。"},
+    {"Press a key or click Cancel.","Drücke eine Taste oder klicke auf Abbrechen.","Pulsa una tecla o haz clic en Cancelar.","请按一个键，或点击取消。","請按一個鍵，或點擊取消。"},
+    {"Choose a layer in the Toggle column, then press any assignable key. Use Cancel to leave capture. If the shortcut is already in use, KeyLayers asks before reassigning it.","Wähle eine Ebene in der Spalte Umschalten und drücke eine belegbare Taste. Mit Abbrechen beendest du die Eingabe. Bei einer bereits belegten Taste fragt KeyLayers vor der Neuzuweisung nach.","Elige una capa en la columna Interruptor y pulsa una tecla asignable. Usa Cancelar para salir de la captura. Si el atajo está en uso, KeyLayers pide confirmación antes de reasignarlo.","在切换列中选择一个层，然后按任意可绑定的按键。点击取消可退出录入。如果快捷键已被使用，KeyLayers 会在重新分配前询问。","在切換欄中選擇一個層，然後按任意可綁定的按鍵。點擊取消可離開輸入。如果快捷鍵已被使用，KeyLayers 會在重新分配前詢問。"},
+    {"Assign a Neutral key. Until then, press the active Toggle shortcut again to return to Base.","Belege eine Basistaste. Bis dahin kehrst du durch erneutes Drücken der aktiven Umschalttaste zur Basis zurück.","Asigna una tecla neutra. Mientras tanto, vuelve a pulsar el atajo del interruptor activo para regresar a Base.","请设置中立键。在此之前，再按一次当前切换快捷键即可返回基础层。","請設定中立鍵。在此之前，再按一次目前的切換快捷鍵即可返回基礎層。"},
+    {"The Neutral key returns to Base from any locked layer.","Die Basistaste führt von jeder fixierten Ebene zur Basis zurück.","La tecla neutra vuelve a Base desde cualquier capa fijada.","中立键可从任意锁定层返回基础层。","中立鍵可從任意鎖定層返回基礎層。"},
+    {"Press the Neutral key, or click Cancel.","Drücke die Basistaste oder klicke auf Abbrechen.","Pulsa la tecla neutra o haz clic en Cancelar.","请按中立键，或点击取消。","請按中立鍵，或點擊取消。"},
+    {"Choose layer…","Ebene wählen…","Elegir capa…","选择层…","選擇層…"},
+    {"Click the Toggle column to enter a key. If the frame has no layer yet, choose one first. The frame switches modes once the shortcut is saved.","Klicke in die Spalte Umschalten, um eine Taste einzugeben. Wähle zuerst eine Ebene, falls noch keine eingestellt ist. Der Rahmen wechselt nach dem Speichern den Modus.","Haz clic en la columna Interruptor para introducir una tecla. Si el marco aún no tiene capa, elígela primero. El marco cambia de modo al guardar el atajo.","点击切换列输入按键。如果框体尚未设置层，请先选择。保存快捷键后，框体会切换模式。","點擊切換欄輸入按鍵。如果框體尚未設定層，請先選擇。儲存快捷鍵後，框體會切換模式。"},
+    {"Configure the two columns independently.","Konfiguriere die beiden Spalten unabhängig voneinander.","Configura las dos columnas de forma independiente.","两列可独立设置。","兩欄可獨立設定。"},
+    {"Each frame can have a Hold modifier and a Toggle shortcut. Click Assign in the Toggle column and press the key you want.","Jeder Rahmen kann eine Haltetaste und eine Umschalttaste haben. Klicke in der Spalte Umschalten auf Belegen und drücke die gewünschte Taste.","Cada marco puede tener un modificador de Mantener y un atajo de Interruptor. Haz clic en Asignar en la columna Interruptor y pulsa la tecla que quieras.","每个框体可以同时设置按住修饰键和切换快捷键。在切换列中点击分配，然后按下所需按键。","每個框體可以同時設定按住修飾鍵和切換快捷鍵。在切換欄中點擊分配，然後按下所需按鍵。"},
+    {"The Release Notes tab shows the five latest versions, newest first. Scroll to read any entries below the visible area.","Der Reiter Versionshinweise zeigt die fünf neuesten Versionen, beginnend mit der jüngsten. Scrolle nach unten, um weitere Einträge zu lesen.","La pestaña Notas de versión muestra las cinco últimas versiones, de la más reciente a la más antigua. Desplázate para leer las notas que no se vean.","版本说明标签页按从新到旧的顺序显示最近五个版本。可滚动查看下方未显示的内容。","版本資訊分頁按從新到舊的順序顯示最近五個版本。可捲動查看下方未顯示的內容。"},
+    {"A frame can use Ctrl for Hold and F10 for Toggle. The displayed shortcut matches what you entered. Frames without a Hold modifier can also have a Toggle shortcut.","Ein Rahmen kann Strg zum Halten und F10 zum Umschalten verwenden. Angezeigt wird die eingegebene Tastenkombination. Auch Rahmen ohne Haltetaste können eine Umschalttaste haben.","Un marco puede usar Ctrl para Mantener y F10 para Interruptor. Se muestra el atajo tal como lo introdujiste. Los marcos sin modificador de Mantener también admiten un atajo de Interruptor.","同一个框体可以用 Ctrl 按住，用 F10 切换。显示的快捷键与输入一致。没有按住修饰键的框体也可以设置切换快捷键。","同一個框體可以用 Ctrl 按住，用 F10 切換。顯示的快捷鍵與輸入一致。沒有按住修飾鍵的框體也可以設定切換快捷鍵。"},
+    {"Added direct key capture in the Toggle column for frames with a layer. Cancelling capture or declining a reassignment preserves the frame configuration.","Für Rahmen mit einer Ebene war die direkte Tasteneingabe in der Spalte Umschalten möglich. Beim Abbrechen oder Ablehnen einer Neuzuweisung blieb die Rahmenkonfiguration erhalten.","Se añadió la captura directa en la columna Interruptor para marcos con una capa. Cancelar la captura o rechazar una reasignación conserva la configuración del marco.","已设置层的框体可在切换列直接录入按键。取消录入或拒绝重新分配会保留框体配置。","已設定層的框體可在切換欄直接輸入按鍵。取消輸入或拒絕重新分配會保留框體設定。"},
+    {"Toggle capture accepts keys and chords, including Escape. KeyLayers prompts for a missing Neutral key. Pressing the active Toggle shortcut again returns to Base.","Für Umschalter lassen sich Tasten und Tastenkombinationen einschließlich Esc eingeben. Fehlt die Basistaste, fragt KeyLayers danach. Erneutes Drücken der aktiven Umschalttaste führt zur Basis zurück.","Puedes introducir teclas o combinaciones para Interruptor, incluida Esc. KeyLayers solicita una tecla neutra si falta. Pulsar otra vez el atajo activo vuelve a Base.","切换快捷键支持单键或组合键，包括 Esc。未设置中立键时，KeyLayers 会提示设置。再按一次当前切换快捷键即可返回基础层。","切換快捷鍵支援單鍵或組合鍵，包括 Esc。未設定中立鍵時，KeyLayers 會提示設定。再按一次目前的切換快捷鍵即可返回基礎層。"},
+    {"Added Hold and Toggle columns in Triggers. If a shortcut is already in use, KeyLayers shows the current assignment and asks before transferring it.","Die Auslöser erhielten die Spalten Halten und Umschalten. Bei einem Konflikt zeigt KeyLayers die aktuelle Belegung und fragt vor der Neuzuweisung nach.","Se añadieron las columnas Mantener e Interruptor en Activadores. Si un atajo ya se usa, KeyLayers muestra la asignación actual y pide confirmación antes de reasignarlo.","触发条件新增按住和切换两列。若快捷键已被占用，KeyLayers 会显示当前分配并在转移前要求确认。","觸發條件新增按住和切換兩欄。若快捷鍵已被使用，KeyLayers 會顯示目前的分配並在轉移前要求確認。"},
 }
 if column then
     for _, row in ipairs(translations) do strings[row[1]] = row[column] or row[4] end
@@ -200,3 +234,21 @@ function addon.Translate(fr, en)
     if locale == "frFR" then return fr end
     return strings[en] or en
 end
+
+addon.releaseHistory = {
+    {"1.1.9b", addon.Translate(
+        "L’onglet Notes de version affiche les cinq dernières versions, de la plus récente à la plus ancienne. Fais défiler la liste si le texte dépasse.",
+        "The Release Notes tab shows the five latest versions, newest first. Scroll to read any entries below the visible area.")},
+    {"1.1.8b", addon.Translate(
+        "Un cadre peut utiliser Ctrl en Maintien et F10 en Interrupteur. La touche affichée correspond à la saisie. Un cadre sans Maintien peut aussi recevoir une touche Interrupteur.",
+        "A frame can use Ctrl for Hold and F10 for Toggle. The displayed shortcut matches what you entered. Frames without a Hold modifier can also have a Toggle shortcut.")},
+    {"1.1.7b", addon.Translate(
+        "Ajout de la saisie directe dans la colonne Interrupteur pour les cadres ayant déjà une couche. Annuler la saisie ou refuser une réattribution conserve la configuration du cadre.",
+        "Added direct key capture in the Toggle column for frames with a layer. Cancelling capture or declining a reassignment preserves the frame configuration.")},
+    {"1.1.6b", addon.Translate(
+        "La saisie Interrupteur accepte une touche ou une combinaison, y compris Échap. KeyLayers propose de configurer une touche Neutre si elle manque. Un second appui sur l’interrupteur actif revient à Base.",
+        "Toggle capture accepts keys and chords, including Escape. KeyLayers prompts for a missing Neutral key. Pressing the active Toggle shortcut again returns to Base.")},
+    {"1.1.5b", addon.Translate(
+        "Ajout des colonnes Maintien et Interrupteur dans Déclencheurs. En cas de conflit, KeyLayers indique l’affectation actuelle et demande confirmation avant de transférer le raccourci.",
+        "Added Hold and Toggle columns in Triggers. If a shortcut is already in use, KeyLayers shows the current assignment and asks before transferring it.")},
+}
