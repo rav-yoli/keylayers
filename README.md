@@ -48,7 +48,7 @@ Under **Frame type**, pick what you want to style. KeyLayers fits the background
 | Bartender4 action bars | **Bartender4**. Group numbered bars, class bars (**C1–C4**), and the bonus action bar (**B+**) in the same frame. |
 | Other Bartender4 bars | Dedicated types for XP, bags, pet, stance, extra action, vehicle, queue status, and totem bars. |
 | WoW’s built-in interface | **Blizzard bars** for one or more action bars, **Micro menu** for the Character, Talents, and other menu buttons, and **XP / progress bar** for the native progress bar. **Micro menu** also follows the buttons when Bartender4 moves them. |
-| Chat and quests | Choose a **Chat** window or use **Questie tracker** to follow Questie’s quest list while it’s visible. |
+| Chat and quests | Choose a **Chat** window, **Glass chat** for the main Glass Forever window, or **Questie tracker** for Questie's quest list. |
 | Any spot on the screen | **Free frame**. Set its position and size yourself. |
 
 For action bars, select the bar numbers under **Layout**, or click their badges in **Edit mode**. The main Blizzard action bar is number 1. Existing Bartender4 frames keep their bar links.

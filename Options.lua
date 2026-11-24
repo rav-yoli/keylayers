@@ -1478,7 +1478,7 @@ function addon.InstallOptions()
         local launcher = broker:NewDataObject("KeyLayers", {
             type = "launcher",
             label = "KeyLayers",
-            icon = texture,
+            icon = [[Interface\AddOns\]] .. addonName .. [[\Media\MinimapBroker.tga]],
             iconCoords = {0, 1, 0, 1},
             OnClick = toggle,
             OnTooltipShow = function(tooltip)

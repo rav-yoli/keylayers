@@ -227,6 +227,9 @@ local translations = {
     {"Added Hold and Toggle columns in Triggers. If a shortcut is already in use, KeyLayers shows the current assignment and asks before transferring it.","Die Auslöser erhielten die Spalten Halten und Umschalten. Bei einem Konflikt zeigt KeyLayers die aktuelle Belegung und fragt vor der Neuzuweisung nach.","Se añadieron las columnas Mantener e Interruptor en Activadores. Si un atajo ya se usa, KeyLayers muestra la asignación actual y pide confirmación antes de reasignarlo.","触发条件新增按住和切换两列。若快捷键已被占用，KeyLayers 会显示当前分配并在转移前要求确认。","觸發條件新增按住和切換兩欄。若快捷鍵已被使用，KeyLayers 會顯示目前的分配並在轉移前要求確認。"},
     {"ProfileSync can copy your KeyLayers layout between characters, including frames, triggers, and styles.","ProfileSync kann dein KeyLayers-Layout einschließlich Rahmen, Auslösern und Stilen zwischen Charakteren kopieren.","ProfileSync puede copiar tu diseño de KeyLayers entre personajes, incluidos los marcos, activadores y estilos.","ProfileSync 可以在角色之间复制 KeyLayers 布局，包括框体、触发条件和样式。","ProfileSync 可以在角色之間複製 KeyLayers 版面配置，包括框體、觸發條件與樣式。"},
     {"SexyMap can manage the KeyLayers minimap button in its Addon buttons settings.","SexyMap kann die KeyLayers-Minimapschaltfläche in den Einstellungen für Add-on-Schaltflächen verwalten.","SexyMap puede gestionar el botón del minimapa de KeyLayers en sus ajustes de botones de addons.","可以在 SexyMap 的插件按钮设置中管理 KeyLayers 的小地图按钮。","可以在 SexyMap 的插件按鈕設定中管理 KeyLayers 的小地圖按鈕。"},
+    {"The KeyLayers minimap icon uses rimless artwork when managed by LibDBIcon.","Das KeyLayers-Minimapsymbol verwendet ohne eigenen Rand die von LibDBIcon verwaltete Schaltfläche.","El icono de minimapa de KeyLayers usa una imagen sin borde cuando lo gestiona LibDBIcon.","由 LibDBIcon 管理时，KeyLayers 小地图图标使用无边框图案。","由 LibDBIcon 管理時，KeyLayers 小地圖圖示使用無邊框圖案。"},
+    {"Glass chat","Glass-Chat","Chat de Glass","Glass 聊天","Glass 聊天"},
+    {"Glass chat is available as a linked frame type. It follows the main Glass Forever chat window as it moves or resizes.","Glass-Chat ist als verknüpfter Rahmentyp verfügbar. Er folgt dem Hauptchatfenster von Glass Forever beim Verschieben oder Ändern der Größe.","Chat de Glass está disponible como tipo de marco vinculado. Sigue la ventana principal de Glass Forever cuando se mueve o cambia de tamaño.","Glass 聊天可用作关联框体类型，并在 Glass Forever 主聊天窗口移动或改变大小时跟随。","Glass 聊天可用作連結框體類型，並在 Glass Forever 主聊天視窗移動或變更大小時跟隨。"},
 }
 if column then
     for _, row in ipairs(translations) do strings[row[1]] = row[column] or row[4] end
@@ -238,6 +241,12 @@ function addon.Translate(fr, en)
 end
 
 addon.releaseHistory = {
+    {"1.1.13b", addon.Translate(
+        "Le tchat Glass est disponible comme type de cadre lié. Il suit la fenêtre principale de Glass Forever quand elle est déplacée ou redimensionnée.",
+        "Glass chat is available as a linked frame type. It follows the main Glass Forever chat window as it moves or resizes.")},
+    {"1.1.12b", addon.Translate(
+        "Quand LibDBIcon gère le bouton de mini-carte, KeyLayers utilise l’icône sans anneau doré.",
+        "The KeyLayers minimap icon uses rimless artwork when managed by LibDBIcon.")},
     {"1.1.11b", addon.Translate(
         "SexyMap peut gérer le bouton de mini-carte de KeyLayers dans ses réglages de boutons d’addons.",
         "SexyMap can manage the KeyLayers minimap button in its Addon buttons settings.")},
@@ -247,10 +256,4 @@ addon.releaseHistory = {
     {"1.1.9b", addon.Translate(
         "L’onglet Notes de version affiche les cinq dernières versions, de la plus récente à la plus ancienne. Fais défiler la liste si le texte dépasse.",
         "The Release Notes tab shows the five latest versions, newest first. Scroll to read any entries below the visible area.")},
-    {"1.1.8b", addon.Translate(
-        "Un cadre peut utiliser Ctrl en Maintien et F10 en Interrupteur. La touche affichée correspond à la saisie. Un cadre sans Maintien peut aussi recevoir une touche Interrupteur.",
-        "A frame can use Ctrl for Hold and F10 for Toggle. The displayed shortcut matches what you entered. Frames without a Hold modifier can also have a Toggle shortcut.")},
-    {"1.1.7b", addon.Translate(
-        "Ajout de la saisie directe dans la colonne Interrupteur pour les cadres ayant déjà une couche. Annuler la saisie ou refuser une réattribution conserve la configuration du cadre.",
-        "Added direct key capture in the Toggle column for frames with a layer. Cancelling capture or declining a reassignment preserves the frame configuration.")},
 }

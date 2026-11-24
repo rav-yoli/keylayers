@@ -1,7 +1,7 @@
 local addonName, addon = ...
 addon.title = "KeyLayers by Rav Yoli"
 local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.11b"
+addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.13b"
 -- ProfileSync scans globals before our ADDON_LOADED handler and recognizes
 -- character data by name. Keep this a plain, character-scoped saved table.
 local emptyCharacterLayout = {panels = {}, mode = "hold", learning = false}
@@ -285,7 +285,7 @@ local blizzardBars = {
 addon.barCounts = {bars = 15, blizzard = #blizzardBars}
 addon.linkedKinds = {
     "bars", "blizzard", "micro", "xp", "bartenderXP", "bartenderBags", "bartenderPet", "bartenderStance",
-    "bartenderExtra", "bartenderVehicle", "bartenderQueue", "bartenderTotems", "questie",
+    "bartenderExtra", "bartenderVehicle", "bartenderQueue", "bartenderTotems", "questie", "glass",
 }
 addon.kindLabels = {
     free = tr("Cadre libre", "Free frame"),
@@ -302,6 +302,7 @@ addon.kindLabels = {
     bartenderQueue = tr("File d’attente (Bartender4)", "Queue status (Bartender4)"),
     bartenderTotems = tr("Totems (Bartender4)", "Totem bar (Bartender4)"),
     questie = tr("Suivi Questie", "Questie tracker"),
+    glass = tr("Tchat Glass", "Glass chat"),
 }
 local linkedFrames = {
     micro = {"MicroMenu", "MicroMenuContainer"},
@@ -315,6 +316,7 @@ local linkedFrames = {
     bartenderQueue = {"BT4BarQueueStatus"},
     bartenderTotems = {"BT4BarTotemBar"},
     questie = {"Questie_BaseFrame"},
+    glass = {"GlassFrame"},
 }
 local buttonBars = {bartenderBags = true, bartenderPet = true, bartenderStance = true, bartenderTotems = true}
 
