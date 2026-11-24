@@ -226,6 +226,7 @@ local translations = {
     {"Toggle capture accepts keys and chords, including Escape. KeyLayers prompts for a missing Neutral key. Pressing the active Toggle shortcut again returns to Base.","Für Umschalter lassen sich Tasten und Tastenkombinationen einschließlich Esc eingeben. Fehlt die Basistaste, fragt KeyLayers danach. Erneutes Drücken der aktiven Umschalttaste führt zur Basis zurück.","Puedes introducir teclas o combinaciones para Interruptor, incluida Esc. KeyLayers solicita una tecla neutra si falta. Pulsar otra vez el atajo activo vuelve a Base.","切换快捷键支持单键或组合键，包括 Esc。未设置中立键时，KeyLayers 会提示设置。再按一次当前切换快捷键即可返回基础层。","切換快捷鍵支援單鍵或組合鍵，包括 Esc。未設定中立鍵時，KeyLayers 會提示設定。再按一次目前的切換快捷鍵即可返回基礎層。"},
     {"Added Hold and Toggle columns in Triggers. If a shortcut is already in use, KeyLayers shows the current assignment and asks before transferring it.","Die Auslöser erhielten die Spalten Halten und Umschalten. Bei einem Konflikt zeigt KeyLayers die aktuelle Belegung und fragt vor der Neuzuweisung nach.","Se añadieron las columnas Mantener e Interruptor en Activadores. Si un atajo ya se usa, KeyLayers muestra la asignación actual y pide confirmación antes de reasignarlo.","触发条件新增按住和切换两列。若快捷键已被占用，KeyLayers 会显示当前分配并在转移前要求确认。","觸發條件新增按住和切換兩欄。若快捷鍵已被使用，KeyLayers 會顯示目前的分配並在轉移前要求確認。"},
     {"ProfileSync can copy your KeyLayers layout between characters, including frames, triggers, and styles.","ProfileSync kann dein KeyLayers-Layout einschließlich Rahmen, Auslösern und Stilen zwischen Charakteren kopieren.","ProfileSync puede copiar tu diseño de KeyLayers entre personajes, incluidos los marcos, activadores y estilos.","ProfileSync 可以在角色之间复制 KeyLayers 布局，包括框体、触发条件和样式。","ProfileSync 可以在角色之間複製 KeyLayers 版面配置，包括框體、觸發條件與樣式。"},
+    {"SexyMap can manage the KeyLayers minimap button in its Addon buttons settings.","SexyMap kann die KeyLayers-Minimapschaltfläche in den Einstellungen für Add-on-Schaltflächen verwalten.","SexyMap puede gestionar el botón del minimapa de KeyLayers en sus ajustes de botones de addons.","可以在 SexyMap 的插件按钮设置中管理 KeyLayers 的小地图按钮。","可以在 SexyMap 的插件按鈕設定中管理 KeyLayers 的小地圖按鈕。"},
 }
 if column then
     for _, row in ipairs(translations) do strings[row[1]] = row[column] or row[4] end
@@ -237,6 +238,9 @@ function addon.Translate(fr, en)
 end
 
 addon.releaseHistory = {
+    {"1.1.11b", addon.Translate(
+        "SexyMap peut gérer le bouton de mini-carte de KeyLayers dans ses réglages de boutons d’addons.",
+        "SexyMap can manage the KeyLayers minimap button in its Addon buttons settings.")},
     {"1.1.10b", addon.Translate(
         "ProfileSync peut copier ta disposition KeyLayers d’un personnage à l’autre, avec ses cadres, ses déclencheurs et ses styles.",
         "ProfileSync can copy your KeyLayers layout between characters, including frames, triggers, and styles.")},
@@ -249,7 +253,4 @@ addon.releaseHistory = {
     {"1.1.7b", addon.Translate(
         "Ajout de la saisie directe dans la colonne Interrupteur pour les cadres ayant déjà une couche. Annuler la saisie ou refuser une réattribution conserve la configuration du cadre.",
         "Added direct key capture in the Toggle column for frames with a layer. Cancelling capture or declining a reassignment preserves the frame configuration.")},
-    {"1.1.6b", addon.Translate(
-        "La saisie Interrupteur accepte une touche ou une combinaison, y compris Échap. KeyLayers propose de configurer une touche Neutre si elle manque. Un second appui sur l’interrupteur actif revient à Base.",
-        "Toggle capture accepts keys and chords, including Escape. KeyLayers prompts for a missing Neutral key. Pressing the active Toggle shortcut again returns to Base.")},
 }

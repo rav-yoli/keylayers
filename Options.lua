@@ -1,6 +1,15 @@
 local addonName, addon = ...
 local tr = addon.Translate
-local defaultMinimapAngle = math.rad(245)
+local function minimapSettings(layout, previous)
+    if not layout.minimapIcon then
+        if layout.minimapAngle then
+            layout.minimapIcon = {minimapPos = math.deg(layout.minimapAngle) % 360}
+        else
+            layout.minimapIcon = previous and addon.Copy(previous) or {minimapPos = 245}
+        end
+    end
+    return layout.minimapIcon
+end
 local labels = {
     base = tr("Base", "Base"), ctrl = tr("Ctrl", "Ctrl"), maj = tr("Maj", "Shift"), alt = "Alt",
     always = tr("Toujours", "Always"), never = tr("Aucun", "None"),
@@ -1367,7 +1376,7 @@ local function buildWindow()
         local function save()
             addon.RememberFrameToggleKeys()
             local snapshot = addon.Copy(layout())
-            snapshot.minimapAngle = snapshot.minimapAngle or defaultMinimapAngle
+            minimapSettings(snapshot)
             snapshot.neutralKey = addon.NeutralKey() or false
             KeyLayersProfiles[value] = snapshot
             profile = value
@@ -1402,9 +1411,9 @@ local function buildWindow()
                 notify(tr("Modifie les raccourcis hors combat.", "Change shortcuts out of combat."))
                 return
             end
-            local minimapAngle = layout().minimapAngle
+            local previousMinimap = minimapSettings(layout())
             KeyLayersCharLayout = addon.Copy(snapshot)
-            KeyLayersCharLayout.minimapAngle = snapshot.minimapAngle or minimapAngle
+            minimapSettings(KeyLayersCharLayout, previousMinimap)
             KeyLayersCharLayout.neutralKey = nil
             addon.MigrateActivation(layout())
             addon.SyncSwitch(true)
@@ -1461,13 +1470,52 @@ function addon.InstallOptions()
         InterfaceOptions_AddCategory(categoryPanel)
     end
     if not Minimap then return end
+    local texture = [[Interface\AddOns\]] .. addonName .. [[\Media\Minimap.tga]]
+    local broker = LibStub and LibStub:GetLibrary("LibDataBroker-1.1", true)
+    local icons = LibStub and LibStub:GetLibrary("LibDBIcon-1.0", true)
+    if broker and icons then
+        local state = minimapSettings(KeyLayersCharLayout)
+        local launcher = broker:NewDataObject("KeyLayers", {
+            type = "launcher",
+            label = "KeyLayers",
+            icon = texture,
+            iconCoords = {0, 1, 0, 1},
+            OnClick = toggle,
+            OnTooltipShow = function(tooltip)
+                tooltip:AddLine(addon.title .. "  v" .. addon.version)
+            end,
+        })
+        icons:Register("KeyLayers", launcher, state)
+        local icon = icons:GetMinimapButton("KeyLayers")
+        addon.PositionMinimapIcon = function()
+            local newState = minimapSettings(KeyLayersCharLayout)
+            if newState ~= state then
+                wipe(state)
+                for key, value in pairs(newState) do state[key] = value end
+                KeyLayersCharLayout.minimapIcon = state
+            end
+            if state.hide then
+                icons:Hide("KeyLayers")
+            else
+                local isLoaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
+                if isLoaded and isLoaded("SexyMap") then
+                    -- SexyMap restores the button's position from its own profile.
+                    icon:Show()
+                else
+                    icons:Show("KeyLayers")
+                end
+            end
+        end
+        return
+    end
+
     local icon = CreateFrame("Button", "BartenderGlowMinimapButton", Minimap)
     icon:SetSize(31, 31)
     icon:SetFrameStrata("MEDIUM")
     icon:SetFrameLevel(Minimap:GetFrameLevel() + 9)
 
     local emblem = icon:CreateTexture(nil, "ARTWORK")
-    emblem:SetTexture([[Interface\AddOns\]] .. addonName .. [[\Media\Minimap.tga]])
+    emblem:SetTexture(texture)
     emblem:SetAllPoints(icon)
 
     local highlight = icon:CreateTexture(nil, "HIGHLIGHT")
@@ -1476,7 +1524,9 @@ function addon.InstallOptions()
     highlight:SetSize(31, 31)
     highlight:SetPoint("CENTER")
     local function position()
-        local angle = KeyLayersCharLayout.minimapAngle or defaultMinimapAngle
+        local state = minimapSettings(KeyLayersCharLayout)
+        local angle = math.rad(state.minimapPos or 245)
+        icon:SetShown(not state.hide)
         icon:ClearAllPoints()
         icon:SetPoint("CENTER", Minimap, "CENTER",
             math.cos(angle) * (Minimap:GetWidth() / 2 + 5),
@@ -1489,7 +1539,8 @@ function addon.InstallOptions()
             local cx, cy = Minimap:GetCenter()
             if cx then
                 local scale = Minimap:GetEffectiveScale()
-                KeyLayersCharLayout.minimapAngle = math.atan2(y / scale - cy, x / scale - cx)
+                minimapSettings(KeyLayersCharLayout).minimapPos =
+                    math.deg(math.atan2(y / scale - cy, x / scale - cx)) % 360
                 position()
             end
         end)

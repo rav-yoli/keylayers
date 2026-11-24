@@ -37,7 +37,7 @@ KeyLayers was built with **GPT‑6.2**. My role as **Rav Yoli** was to define th
 
 ## Installation
 
-Extract the `KeyLayers by Rav Yoli` folder into `Interface/AddOns`. Launch WoW, enable **KeyLayers by Rav Yoli**, then open it with `/keylayers` or the minimap icon. Bartender4 and Questie are optional.
+Extract the `KeyLayers by Rav Yoli` folder into `Interface/AddOns`. Launch WoW, enable **KeyLayers by Rav Yoli**, then open it with `/keylayers` or the minimap icon. Bartender4, Questie, and SexyMap are optional. In SexyMap, open **Buttons > Addon buttons > KeyLayers** to set minimap button visibility.
 
 ## Frames that fit your UI automatically
 
