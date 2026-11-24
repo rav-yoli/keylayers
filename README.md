@@ -1,4 +1,4 @@
-# KeyLayers by Rav Yoli 1.1.0b
+# KeyLayers by Rav Yoli 1.1.13b
 
 **KeyLayers** is a keyboard-first addon for **WoW Forever**. It organizes your keybinds into layers and highlights the action bars for the layer you’re using.
 
