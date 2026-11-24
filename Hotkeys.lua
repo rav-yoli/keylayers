@@ -110,7 +110,7 @@ local function showKey(button, key, style)
 end
 
 function addon.UpdateGameplayHotkeys(activePanels)
-    local layout = KeyLayersLayout
+    local layout = KeyLayersCharLayout
     if not layout.activeHotkeysOnly or suspended then
         for button, state in pairs(managed) do restore(button, state) end
         return
@@ -165,9 +165,9 @@ function addon.CreateHotkeyStylePage(page, ui)
     }
     local refresh
     local function changeStyle(key, value)
-        local style = addon.Copy(KeyLayersLayout.activeHotkeyStyle or {})
+        local style = addon.Copy(KeyLayersCharLayout.activeHotkeyStyle or {})
         style[key] = value
-        KeyLayersLayout.activeHotkeyStyle = next(style) and style or nil
+        KeyLayersCharLayout.activeHotkeyStyle = next(style) and style or nil
         refresh()
         addon.Refresh()
     end
@@ -175,7 +175,7 @@ function addon.CreateHotkeyStylePage(page, ui)
     ui.label(page, tr("Style des raccourcis", "Keybinding style"), 18, -14, "GameFontNormalLarge")
     local enabled = ui.check(page, tr("Afficher uniquement les raccourcis des cadres actifs",
         "Show keybindings only on active frames"), 18, -51, function(value)
-        KeyLayersLayout.activeHotkeysOnly = value or nil
+        KeyLayersCharLayout.activeHotkeysOnly = value or nil
         refresh()
         addon.Refresh()
     end)
@@ -189,7 +189,7 @@ function addon.CreateHotkeyStylePage(page, ui)
     local fontMenu = ui.menu(page, 18, -157, 196, function(root)
         for _, font in ipairs(addon.hotkeyFonts) do
             ui.radio(root, fontNames[font.id], font.id, function()
-                return (KeyLayersLayout.activeHotkeyStyle or {}).font or "game"
+                return (KeyLayersCharLayout.activeHotkeyStyle or {}).font or "game"
             end, function(value)
                 changeStyle("font", value ~= "game" and value or nil)
             end)
@@ -198,7 +198,7 @@ function addon.CreateHotkeyStylePage(page, ui)
 
     ui.label(page, tr("Taille du texte", "Text size"), 243, -137)
     local sizeMenu = ui.menu(page, 243, -157, 132, function(root)
-        local function current() return (KeyLayersLayout.activeHotkeyStyle or {}).size or 0 end
+        local function current() return (KeyLayersCharLayout.activeHotkeyStyle or {}).size or 0 end
         local function selectSize(size) changeStyle("size", size ~= 0 and size or nil) end
         ui.radio(root, default, 0, current, selectSize)
         for size = 8, 28, 2 do ui.radio(root, tostring(size), size, current, selectSize) end
@@ -206,17 +206,17 @@ function addon.CreateHotkeyStylePage(page, ui)
 
     ui.label(page, tr("Couleur du texte", "Text color"), 404, -137)
     local colorButton = ui.button(page, tr("Choisir…", "Choose…"), 404, -157, 116, function()
-        local layout = KeyLayersLayout
+        local layout = KeyLayersCharLayout
         local color = (layout.activeHotkeyStyle or {}).color
         local r, g, b = GameFontHighlightSmall:GetTextColor()
         if color then r, g, b = unpack(color) end
         ColorPickerFrame:SetupColorPickerAndShow({
             r = r, g = g, b = b,
             swatchFunc = function()
-                if KeyLayersLayout == layout then changeStyle("color", {ColorPickerFrame:GetColorRGB()}) end
+                if KeyLayersCharLayout == layout then changeStyle("color", {ColorPickerFrame:GetColorRGB()}) end
             end,
             cancelFunc = function()
-                if KeyLayersLayout == layout then changeStyle("color", color) end
+                if KeyLayersCharLayout == layout then changeStyle("color", color) end
             end,
         })
     end)
@@ -224,7 +224,7 @@ function addon.CreateHotkeyStylePage(page, ui)
     swatch:SetSize(13, 13)
     swatch:SetPoint("RIGHT", -8, 0)
     ui.button(page, tr("Réinitialiser", "Reset"), 530, -157, 132, function()
-        KeyLayersLayout.activeHotkeyStyle = nil
+        KeyLayersCharLayout.activeHotkeyStyle = nil
         refresh()
         addon.Refresh()
     end)
@@ -243,8 +243,8 @@ function addon.CreateHotkeyStylePage(page, ui)
     sample:SetText(GetBindingText and GetBindingText("4") or "4")
 
     refresh = function()
-        local style = KeyLayersLayout.activeHotkeyStyle
-        enabled:SetChecked(not not KeyLayersLayout.activeHotkeysOnly)
+        local style = KeyLayersCharLayout.activeHotkeyStyle
+        enabled:SetChecked(not not KeyLayersCharLayout.activeHotkeysOnly)
         fontMenu:OverrideText(style and fontNames[style.font] or default)
         sizeMenu:OverrideText(style and style.size and tostring(style.size) or default)
         addon.ApplyHotkeyStyle(sample, style)

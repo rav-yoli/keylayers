@@ -230,7 +230,7 @@ local function buildWindow()
         panel = panel or draft
         return inactive and styleKeys[key] and panel.inactiveStyle or panel
     end
-    local function layout() return KeyLayersLayout end
+    local function layout() return KeyLayersCharLayout end
     local function refreshPreview()
         local panel = window:IsShown() and config:IsShown() and draft or nil
         addon.SetDraftPreview(selected, panel, inactive)
@@ -649,6 +649,7 @@ local function buildWindow()
         set(target)
         if saved and saved ~= target then set(saved) end
         addon.SyncSwitch(true)
+        addon.RememberFrameToggleKeys()
         redrawActivation()
         refresh()
         refreshPreview()
@@ -1364,6 +1365,7 @@ local function buildWindow()
         if value == "" then value = defaultProfileName() end
         if not value then return end
         local function save()
+            addon.RememberFrameToggleKeys()
             local snapshot = addon.Copy(layout())
             snapshot.minimapAngle = snapshot.minimapAngle or defaultMinimapAngle
             snapshot.neutralKey = addon.NeutralKey() or false
@@ -1401,11 +1403,12 @@ local function buildWindow()
                 return
             end
             local minimapAngle = layout().minimapAngle
-            KeyLayersLayout = addon.Copy(snapshot)
-            KeyLayersLayout.minimapAngle = snapshot.minimapAngle or minimapAngle
-            KeyLayersLayout.neutralKey = nil
+            KeyLayersCharLayout = addon.Copy(snapshot)
+            KeyLayersCharLayout.minimapAngle = snapshot.minimapAngle or minimapAngle
+            KeyLayersCharLayout.neutralKey = nil
             addon.MigrateActivation(layout())
             addon.SyncSwitch(true)
+            addon.RestoreFrameToggleKeys()
             local restored = snapshot.neutralKey == nil or addon.AssignNeutralKey(snapshot.neutralKey)
             if addon.PositionMinimapIcon then addon.PositionMinimapIcon() end
             pick(1)
@@ -1473,7 +1476,7 @@ function addon.InstallOptions()
     highlight:SetSize(31, 31)
     highlight:SetPoint("CENTER")
     local function position()
-        local angle = KeyLayersLayout.minimapAngle or defaultMinimapAngle
+        local angle = KeyLayersCharLayout.minimapAngle or defaultMinimapAngle
         icon:ClearAllPoints()
         icon:SetPoint("CENTER", Minimap, "CENTER",
             math.cos(angle) * (Minimap:GetWidth() / 2 + 5),
@@ -1486,7 +1489,7 @@ function addon.InstallOptions()
             local cx, cy = Minimap:GetCenter()
             if cx then
                 local scale = Minimap:GetEffectiveScale()
-                KeyLayersLayout.minimapAngle = math.atan2(y / scale - cy, x / scale - cx)
+                KeyLayersCharLayout.minimapAngle = math.atan2(y / scale - cy, x / scale - cx)
                 position()
             end
         end)

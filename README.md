@@ -105,6 +105,13 @@ A profile includes your saved frames, triggers, styles, learning-tab settings, m
 
 Save the frame you’re editing before saving the profile.
 
+
+### ProfileSync
+
+On the source character, open **ProfileSync > Options** and enable character data for **KeyLayers by Rav Yoli**. If the entry is missing after updating, run `/ps scan`. Save a setup and apply it on the destination character.
+
+Enable **Key bindings** in ProfileSync to copy regular WoW bindings and the Neutral key. KeyLayers restores missing custom frame Toggle shortcuts from the layout if their keys are free.
+
 ## Chat windows
 
 Under **Frame type**, pick **Chat 1**, **Chat 2**, or another existing chat window. The menu also shows its in-game name.

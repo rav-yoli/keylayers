@@ -147,6 +147,33 @@ function addon.AssignPanelToggleKey(panel, toggle, key, replace)
     return assignKey(binding, key, replace)
 end
 
+local restoringFrameKeys = false
+
+function addon.RememberFrameToggleKeys()
+    if restoringFrameKeys then return end
+    local keys = {}
+    for _, panel in ipairs(KeyLayersCharLayout.panels) do
+        local toggle = addon.PanelToggle(panel)
+        if type(toggle) == "number" then keys[tostring(toggle)] = addon.PanelToggleKey(panel) end
+    end
+    KeyLayersCharLayout.frameToggleKeys = next(keys) and keys or nil
+end
+
+function addon.RestoreFrameToggleKeys()
+    local keys = KeyLayersCharLayout.frameToggleKeys
+    if not keys or InCombatLockdown() then return end
+    restoringFrameKeys = true
+    for _, panel in ipairs(KeyLayersCharLayout.panels) do
+        local toggle = addon.PanelToggle(panel)
+        local key = type(toggle) == "number" and keys[tostring(toggle)]
+        if type(key) == "string" and not addon.PanelToggleKey(panel) then
+            addon.AssignPanelToggleKey(panel, toggle, key)
+        end
+    end
+    restoringFrameKeys = false
+    addon.RememberFrameToggleKeys()
+end
+
 function addon.MigrateActivation(layout)
     local used = {}
     for _, panel in ipairs(layout.panels) do
@@ -395,7 +422,7 @@ function addon.SyncSwitch(reset)
     updatePending = false
     local configuration = {"bindings = newtable()"}
     local switches, routes, ids = {}, {}, {}
-    for _, panel in ipairs(KeyLayersLayout.panels) do
+    for _, panel in ipairs(KeyLayersCharLayout.panels) do
         local toggle = addon.PanelToggle(panel)
         local id = type(toggle) == "number" and toggle or layerMasks[toggle]
         if id and id > 0 and routes[id] == nil then

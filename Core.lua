@@ -1,7 +1,14 @@
 local addonName, addon = ...
 addon.title = "KeyLayers by Rav Yoli"
 local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.9b"
+addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.10b"
+-- ProfileSync scans globals before our ADDON_LOADED handler and recognizes
+-- character data by name. Keep this a plain, character-scoped saved table.
+local emptyCharacterLayout = {panels = {}, mode = "hold", learning = false}
+KeyLayersCharLayout = KeyLayersCharLayout or KeyLayersLayout or BartenderGlowLayout or emptyCharacterLayout
+KeyLayersLayout, BartenderGlowLayout = nil, nil
+local initialized = false
+
 local root = UIParent
 local layers = {
     "base", "ctrl", "maj", "alt", "ctrl+maj", "ctrl+alt", "maj+alt", "ctrl+maj+alt",
@@ -170,7 +177,7 @@ function addon.CreateHint(frame)
 end
 
 function addon.GlobalHints()
-    local layout = KeyLayersLayout
+    local layout = KeyLayersCharLayout
     if not layout.hintSettings then
         layout.hintSettings = {hint = true, hintSide = "top-start", hintOrientation = "horizontal"}
     end
@@ -526,7 +533,7 @@ local function setPaintLevel(layer, level)
 end
 
 local function refresh()
-    local layout = KeyLayersLayout
+    local layout = KeyLayersCharLayout
     if not layout then return end
     barBounds = {bars = {}, blizzard = {}}
     local scale = root:GetEffectiveScale()
@@ -692,24 +699,38 @@ function addon.Refresh()
 end
 
 local events = CreateFrame("Frame")
+events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
+events:RegisterEvent("PLAYER_LOGOUT")
 events:RegisterEvent("MODIFIER_STATE_CHANGED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("UPDATE_BINDINGS")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
-events:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_LOGIN" then
-        -- The legacy names stay in the TOC so existing saves can be migrated.
-        KeyLayersLayout = KeyLayersLayout or BartenderGlowLayout or {panels = {}, mode = "hold", learning = false}
+events:SetScript("OnEvent", function(self, event, loadedAddon)
+    if event == "ADDON_LOADED" then
+        if loadedAddon ~= addonName then return end
+        self:UnregisterEvent("ADDON_LOADED")
+        if KeyLayersCharLayout == emptyCharacterLayout then
+            KeyLayersCharLayout = KeyLayersLayout or BartenderGlowLayout or emptyCharacterLayout
+        end
+        KeyLayersLayout, BartenderGlowLayout = nil, nil
+    elseif event == "PLAYER_LOGIN" then
         KeyLayersProfiles = KeyLayersProfiles or BartenderGlowProfiles or {}
         KeyLayersNotices = KeyLayersNotices or BartenderGlowNotices or {}
-        BartenderGlowLayout, BartenderGlowProfiles, BartenderGlowNotices = nil, nil, nil
-        addon.MigrateActivation(KeyLayersLayout)
+        BartenderGlowProfiles, BartenderGlowNotices = nil, nil
+        addon.MigrateActivation(KeyLayersCharLayout)
         addon.SyncSwitch(true)
+        addon.RestoreFrameToggleKeys()
+        initialized = true
         addon.InstallOptions()
         addon.Refresh()
-    elseif KeyLayersLayout then
+    elseif initialized then
+        if event == "PLAYER_LOGOUT" then
+            addon.RememberFrameToggleKeys()
+            return
+        end
+        if event == "UPDATE_BINDINGS" then addon.RememberFrameToggleKeys() end
         if event == "UPDATE_BINDINGS" or event == "PLAYER_ENTERING_WORLD" then addon.InvalidateGameplayHotkeys() end
         addon.SwitchEvent(event)
         addon.Refresh()
@@ -718,7 +739,7 @@ end)
 
 local elapsed = 0
 events:SetScript("OnUpdate", function(_, delta)
-    if not KeyLayersLayout then return end
+    if not initialized then return end
     elapsed = elapsed + delta
     local updateHotkeys = elapsed >= 0.10
     if updateHotkeys then

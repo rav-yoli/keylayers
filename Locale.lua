@@ -225,6 +225,7 @@ local translations = {
     {"Added direct key capture in the Toggle column for frames with a layer. Cancelling capture or declining a reassignment preserves the frame configuration.","Für Rahmen mit einer Ebene war die direkte Tasteneingabe in der Spalte Umschalten möglich. Beim Abbrechen oder Ablehnen einer Neuzuweisung blieb die Rahmenkonfiguration erhalten.","Se añadió la captura directa en la columna Interruptor para marcos con una capa. Cancelar la captura o rechazar una reasignación conserva la configuración del marco.","已设置层的框体可在切换列直接录入按键。取消录入或拒绝重新分配会保留框体配置。","已設定層的框體可在切換欄直接輸入按鍵。取消輸入或拒絕重新分配會保留框體設定。"},
     {"Toggle capture accepts keys and chords, including Escape. KeyLayers prompts for a missing Neutral key. Pressing the active Toggle shortcut again returns to Base.","Für Umschalter lassen sich Tasten und Tastenkombinationen einschließlich Esc eingeben. Fehlt die Basistaste, fragt KeyLayers danach. Erneutes Drücken der aktiven Umschalttaste führt zur Basis zurück.","Puedes introducir teclas o combinaciones para Interruptor, incluida Esc. KeyLayers solicita una tecla neutra si falta. Pulsar otra vez el atajo activo vuelve a Base.","切换快捷键支持单键或组合键，包括 Esc。未设置中立键时，KeyLayers 会提示设置。再按一次当前切换快捷键即可返回基础层。","切換快捷鍵支援單鍵或組合鍵，包括 Esc。未設定中立鍵時，KeyLayers 會提示設定。再按一次目前的切換快捷鍵即可返回基礎層。"},
     {"Added Hold and Toggle columns in Triggers. If a shortcut is already in use, KeyLayers shows the current assignment and asks before transferring it.","Die Auslöser erhielten die Spalten Halten und Umschalten. Bei einem Konflikt zeigt KeyLayers die aktuelle Belegung und fragt vor der Neuzuweisung nach.","Se añadieron las columnas Mantener e Interruptor en Activadores. Si un atajo ya se usa, KeyLayers muestra la asignación actual y pide confirmación antes de reasignarlo.","触发条件新增按住和切换两列。若快捷键已被占用，KeyLayers 会显示当前分配并在转移前要求确认。","觸發條件新增按住和切換兩欄。若快捷鍵已被使用，KeyLayers 會顯示目前的分配並在轉移前要求確認。"},
+    {"ProfileSync can copy your KeyLayers layout between characters, including frames, triggers, and styles.","ProfileSync kann dein KeyLayers-Layout einschließlich Rahmen, Auslösern und Stilen zwischen Charakteren kopieren.","ProfileSync puede copiar tu diseño de KeyLayers entre personajes, incluidos los marcos, activadores y estilos.","ProfileSync 可以在角色之间复制 KeyLayers 布局，包括框体、触发条件和样式。","ProfileSync 可以在角色之間複製 KeyLayers 版面配置，包括框體、觸發條件與樣式。"},
 }
 if column then
     for _, row in ipairs(translations) do strings[row[1]] = row[column] or row[4] end
@@ -236,6 +237,9 @@ function addon.Translate(fr, en)
 end
 
 addon.releaseHistory = {
+    {"1.1.10b", addon.Translate(
+        "ProfileSync peut copier ta disposition KeyLayers d’un personnage à l’autre, avec ses cadres, ses déclencheurs et ses styles.",
+        "ProfileSync can copy your KeyLayers layout between characters, including frames, triggers, and styles.")},
     {"1.1.9b", addon.Translate(
         "L’onglet Notes de version affiche les cinq dernières versions, de la plus récente à la plus ancienne. Fais défiler la liste si le texte dépasse.",
         "The Release Notes tab shows the five latest versions, newest first. Scroll to read any entries below the visible area.")},
@@ -248,7 +252,4 @@ addon.releaseHistory = {
     {"1.1.6b", addon.Translate(
         "La saisie Interrupteur accepte une touche ou une combinaison, y compris Échap. KeyLayers propose de configurer une touche Neutre si elle manque. Un second appui sur l’interrupteur actif revient à Base.",
         "Toggle capture accepts keys and chords, including Escape. KeyLayers prompts for a missing Neutral key. Pressing the active Toggle shortcut again returns to Base.")},
-    {"1.1.5b", addon.Translate(
-        "Ajout des colonnes Maintien et Interrupteur dans Déclencheurs. En cas de conflit, KeyLayers indique l’affectation actuelle et demande confirmation avant de transférer le raccourci.",
-        "Added Hold and Toggle columns in Triggers. If a shortcut is already in use, KeyLayers shows the current assignment and asks before transferring it.")},
 }
