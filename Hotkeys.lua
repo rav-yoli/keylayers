@@ -1,6 +1,6 @@
 local _, addon = ...
 local managed, labels, cachedKeys = {}, {}, {}
-local suspended = false
+local suspended, previewingStyle = false, false
 
 local function restore(button, state)
     if state.native then state.native:SetAlpha(state.alpha) end
@@ -10,7 +10,7 @@ end
 
 function addon.SetGameplayHotkeysSuspended(value)
     suspended = value
-    if value then
+    if value and not previewingStyle then
         for button, state in pairs(managed) do restore(button, state) end
     end
 end
@@ -19,12 +19,16 @@ function addon.InvalidateGameplayHotkeys()
     wipe(cachedKeys)
 end
 
+local function displayMode(layout)
+    return layout.hotkeyDisplayMode or (layout.activeHotkeysOnly and "active" or "native")
+end
+
 local function matchingKey(mask, ...)
     for index = 1, select("#", ...) do
         local key = select(index, ...)
         if key and key ~= "" then
-            local modifiers, plain = addon.SplitBinding(key)
-            if modifiers == mask then return plain end
+            local modifiers = addon.SplitBinding(key)
+            if mask == nil or modifiers == mask then return key end
         end
     end
 end
@@ -35,8 +39,9 @@ local function actionKey(button, kind, id, slot, prefix)
         byPrefix = {}
         cachedKeys[button] = byPrefix
     end
-    if byPrefix[prefix] ~= nil then return byPrefix[prefix] or nil end
-    local mask = addon.SplitBinding(prefix .. "1")
+    local cacheKey = prefix or false
+    if byPrefix[cacheKey] ~= nil then return byPrefix[cacheKey] or nil end
+    local mask = prefix and addon.SplitBinding(prefix .. "1")
     local key
     if kind == "bars" then
         local name = button:GetName()
@@ -51,8 +56,8 @@ local function actionKey(button, kind, id, slot, prefix)
             and C_KeyBindings.GetBindingContextForAction(command)
         key = matchingKey(mask, GetBindingKey(command, nil, context))
     end
-    byPrefix[prefix] = key and (GetBindingText and GetBindingText(key) or key) or false
-    return byPrefix[prefix] or nil
+    byPrefix[cacheKey] = key or false
+    return key
 end
 
 addon.hotkeyFonts = {
@@ -110,7 +115,8 @@ end
 
 function addon.UpdateGameplayHotkeys(activePanels)
     local layout = KeyLayersCharLayout
-    if not layout.activeHotkeysOnly or suspended then
+    local mode = displayMode(layout)
+    if mode == "native" or (suspended and not previewingStyle) then
         for button, state in pairs(managed) do restore(button, state) end
         return
     end
@@ -119,7 +125,7 @@ function addon.UpdateGameplayHotkeys(activePanels)
     for _, panel in ipairs(layout.panels) do
         local layer = addon.PanelKeyLayer(panel, activePanels[panel] == "toggle")
         local prefix = layer and addon.BindingPrefix(layer)
-        local ids = prefix and addon.BarSelection(panel)
+        local ids = (prefix or mode == "all") and addon.BarSelection(panel)
         for id = 1, ids and addon.barCounts[panel.kind] or 0 do
             if ids[id] then
                 for slot = 1, 12 do
@@ -133,8 +139,23 @@ function addon.UpdateGameplayHotkeys(activePanels)
                             managed[button] = state
                         end
                         state.present = true
-                        if not state.key and activePanels[panel] and button:IsVisible() then
-                            state.key = actionKey(button, panel.kind, id, slot, prefix)
+                        if not state.key and button:IsVisible() and (mode == "all" or activePanels[panel]) then
+                            local key = actionKey(button, panel.kind, id, slot, prefix)
+                            if mode == "all" then
+                                key = key or actionKey(button, panel.kind, id, slot)
+                            elseif key then
+                                local _, plain = addon.SplitBinding(key)
+                                key = plain
+                            end
+                            if key then
+                                local caption = GetBindingText and GetBindingText(key) or key
+                                if mode == "all" then
+                                    caption = caption:gsub("^CTRL%-", "C-"):gsub("%-CTRL%-", "-C-")
+                                    caption = caption:gsub("^MAJ%-", "S-"):gsub("%-MAJ%-", "-S-")
+                                    caption = caption:gsub("^SHIFT%-", "S-"):gsub("%-SHIFT%-", "-S-")
+                                end
+                                state.key = caption
+                            end
                         end
                     end
                 end
@@ -172,14 +193,27 @@ function addon.CreateHotkeyStylePage(page, ui)
     end
 
     ui.label(page, tr("Style des raccourcis", "Keybinding style"), 18, -14, "GameFontNormalLarge")
-    local enabled = ui.check(page, tr("Afficher uniquement les raccourcis des cadres actifs",
-        "Show keybindings only on active frames"), 18, -51, function(value)
-        KeyLayersCharLayout.activeHotkeysOnly = value or nil
-        refresh()
-        addon.Refresh()
+    local modeLabels = {
+        native = tr("Affichage de WoW ou Bartender4", "WoW or Bartender4 display"),
+        all = tr("Tous les cadres liés", "All linked frames"),
+        active = tr("Cadres actifs uniquement", "Active frames only"),
+    }
+    ui.label(page, tr("Afficher les raccourcis", "Show keybindings"), 18, -45)
+    local modeMenu = ui.menu(page, 18, -63, 300, function(root)
+        for _, mode in ipairs({"native", "all", "active"}) do
+            ui.radio(root, modeLabels[mode], mode, function() return displayMode(KeyLayersCharLayout) end,
+                function(value)
+                    KeyLayersCharLayout.hotkeyDisplayMode = value ~= "native" and value or nil
+                    KeyLayersCharLayout.activeHotkeysOnly = nil
+                    refresh()
+                    addon.Refresh()
+                end)
+        end
     end)
-    local explanation = ui.label(page, tr("Ce style s’applique aux touches affichées sur les barres actives quand l’option est cochée.",
-        "This style applies to key labels on active bars when the option is checked."), 18, -88, "GameFontHighlightSmall")
+    local explanation = ui.label(page, tr(
+        "Dans les deux modes KeyLayers, le style s’applique directement sur les barres liées. Le mode WoW ou Bartender4 suit leurs réglages.",
+        "Both KeyLayers modes apply this style to linked bars. WoW or Bartender4 display follows their own settings."),
+        18, -97, "GameFontHighlightSmall")
     explanation:SetWidth(644)
     explanation:SetJustifyH("LEFT")
     explanation:SetWordWrap(true)
@@ -243,11 +277,21 @@ function addon.CreateHotkeyStylePage(page, ui)
 
     refresh = function()
         local style = KeyLayersCharLayout.activeHotkeyStyle
-        enabled:SetChecked(not not KeyLayersCharLayout.activeHotkeysOnly)
+        modeMenu:OverrideText(modeLabels[displayMode(KeyLayersCharLayout)])
         fontMenu:OverrideText(style and fontNames[style.font] or default)
         sizeMenu:OverrideText(style and style.size and tostring(style.size) or default)
         addon.ApplyHotkeyStyle(sample, style)
         swatch:SetColorTexture(sample:GetTextColor())
     end
+    -- The Style page uses the real action bars as its preview. Capture mode still
+    -- suspends the gameplay labels as soon as the page is hidden.
+    page:HookScript("OnShow", function()
+        previewingStyle = true
+        addon.Refresh()
+    end)
+    page:HookScript("OnHide", function()
+        previewingStyle = false
+        addon.Refresh()
+    end)
     return refresh
 end

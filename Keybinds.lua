@@ -42,7 +42,7 @@ local function eligibleBars(commands)
                     local number, barLabel = addon.BarLabel(panel.kind, id)
                     local entry = {
                         id = id, number = tonumber(number) or math.huge,
-                        label = panel.name .. " · " .. barLabel, prefix = prefix, slots = {},
+                        label = panel.name .. " · " .. barLabel, panel = panel, prefix = prefix, layer = layer, slots = {},
                     }
                     for slot = 1, 12 do
                         local action = addon.BarActionButton(panel.kind, id, slot)
@@ -96,6 +96,39 @@ local function eligibleBars(commands)
     return bases, targets
 end
 
+local generationLayers = {"ctrl", "maj", "ctrl+maj", "alt", "ctrl+alt", "maj+alt", "ctrl+maj+alt"}
+
+local function groupTargets(targets)
+    local byLayer = {}
+    for _, bar in ipairs(targets) do
+        local layer = byLayer[bar.layer]
+        if not layer then
+            layer = {groups = {}, panels = {}}
+            byLayer[bar.layer] = layer
+        end
+        local group = layer.panels[bar.panel]
+        if not group then
+            group = {panel = bar.panel, bars = {}, usable = false}
+            layer.panels[bar.panel] = group
+            layer.groups[#layer.groups + 1] = group
+        end
+        group.bars[#group.bars + 1] = bar
+        group.usable = group.usable or not bar.blocked
+    end
+    return byLayer
+end
+
+local function uniquePanels(bars)
+    local panels, seen = {}, {}
+    for _, bar in ipairs(bars) do
+        if not seen[bar.panel] then
+            seen[bar.panel] = true
+            panels[#panels + 1] = bar.panel
+        end
+    end
+    return panels
+end
+
 local function baseKey(...)
     for index = 1, select("#", ...) do
         local key = select(index, ...)
@@ -106,6 +139,25 @@ end
 
 local function keyForAction(action)
     return baseKey(GetBindingKey(action.command, nil, action.context))
+end
+
+local function compareSlots(bases, group, pending)
+    local sourceCount, targetCount, matched, keyed = 0, 0, 0, 0
+    for _, base in ipairs(bases) do
+        for _ in pairs(base.slots) do sourceCount = sourceCount + 1 end
+    end
+    for _, bar in ipairs(group.bars) do
+        local base = bases[bar.sourceIndex]
+        for slot in pairs(bar.slots) do
+            targetCount = targetCount + 1
+            local action = base and base.slots[slot]
+            if action then
+                matched = matched + 1
+                if (pending[base] and pending[base][slot]) or keyForAction(action) then keyed = keyed + 1 end
+            end
+        end
+    end
+    return sourceCount, targetCount, matched, keyed
 end
 
 local function bindingName(command)
@@ -252,24 +304,27 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
     warning:SetTextColor(1, 0.82, 0.36)
 
     local filter, bases, targets, selected, pending, approved
-    local sourceMenu, targetMenu, apply
+    local sourceMenu, apply
+    local targetGroups, sourcePanels
+    local generators, hoveredGenerator = {}, nil
+    local refreshGeneratorHover
     local redraw, refreshSlots
     local captureBar, captureSlot
-    local barRows, preview, generators = {}, {}, {}
-    local status = text("", 18, -576)
-    local hint = text("", 18, -103)
+    local barRows, preview = {}, {}
+    local status = text("", 18, -581)
 
-    local function makeHalo(parent, strata)
+    local function makeHalo(parent, strata, color)
         local halo = CreateFrame("Frame", nil, parent, "BackdropTemplate")
         if strata then halo:SetFrameStrata(strata) end
         halo:EnableMouse(false)
         halo:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2})
-        halo:SetBackdropBorderColor(1, 0.28, 0.22, 0.95)
+        color = color or {1, 0.28, 0.22}
+        halo:SetBackdropBorderColor(color[1], color[2], color[3], 0.95)
         local glow = CreateFrame("Frame", nil, halo, "BackdropTemplate")
         glow:SetPoint("TOPLEFT", -2, 2)
         glow:SetPoint("BOTTOMRIGHT", 2, -2)
         glow:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2})
-        glow:SetBackdropBorderColor(1, 0.18, 0.12, 0.36)
+        glow:SetBackdropBorderColor(color[1], color[2], color[3], 0.36)
         halo:Hide()
         return halo
     end
@@ -310,12 +365,50 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
     end
 
     local keyboard = CreateFrame("Frame", nil, window)
+    local capturePrompt = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    capturePrompt:SetSize(396, 116)
+    capturePrompt:SetFrameStrata("FULLSCREEN_DIALOG")
+    capturePrompt:SetClampedToScreen(true)
+    capturePrompt:EnableMouse(true)
+    capturePrompt:SetBackdrop({
+        bgFile = [[Interface\Buttons\WHITE8X8]],
+        edgeFile = [[Interface\Buttons\WHITE8X8]], edgeSize = 1,
+    })
+    capturePrompt:SetBackdropColor(0.08, 0.12, 0.17, 0.98)
+    capturePrompt:SetBackdropBorderColor(0.38, 0.70, 0.86, 1)
+    ui.label(capturePrompt, tr("Attribution d’un raccourci", "Assigning a shortcut"),
+        16, -10, "GameFontNormalLarge")
+    local promptTarget = ui.label(capturePrompt, "", 16, -34, "GameFontHighlightSmall")
+    promptTarget:SetWidth(364)
+    promptTarget:SetMaxLines(1)
+    promptTarget:SetJustifyH("LEFT")
+    local promptInstructions = ui.label(capturePrompt, tr(
+        "Appuie sur la touche de ton choix, seule, sans Maj, Ctrl ni Alt. Échap annule.",
+        "Press the key you want on its own, without Shift, Ctrl, or Alt. Escape cancels."),
+        16, -54, "GameFontHighlight")
+    promptInstructions:SetWidth(364)
+    promptInstructions:SetJustifyH("LEFT")
+    promptInstructions:SetWordWrap(true)
+    capturePrompt:Hide()
+
     local function cancelCapture()
         captureBar, captureSlot = nil, nil
         keyboard:EnableKeyboard(false)
+        capturePrompt:Hide()
     end
 
+    ui.button(capturePrompt, CANCEL or tr("Annuler", "Cancel"), 252, -86, 128, function()
+        cancelCapture()
+        refreshSlots()
+    end)
+
     window:SetScript("OnHide", function()
+        addon.SetBindingOutlines({}, {})
+        if hoveredGenerator then
+            hoveredGenerator.halo:Hide()
+            GameTooltip:Hide()
+            hoveredGenerator = nil
+        end
         cancelCapture()
         clearHalo()
         for _, row in ipairs(barRows) do
@@ -335,13 +428,51 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
             redraw()
         end
     end)
-    local function capture(bar, slot)
+    local function placeCapturePrompt(anchor)
+        local scale = UIParent:GetEffectiveScale()
+        local mouseX, mouseY = GetCursorPosition()
+        mouseX, mouseY = mouseX / scale, mouseY / scale
+        local left, bottom, width, height = anchor:GetRect()
+        local right, top = mouseX, mouseY
+        if left then
+            local factor = anchor:GetEffectiveScale() / scale
+            right, top = (left + width) * factor, (bottom + height) * factor
+            left, bottom = left * factor, bottom * factor
+        else
+            left, bottom = mouseX, mouseY
+        end
+
+        local gap, margin = 12, 8
+        local promptWidth, promptHeight = capturePrompt:GetSize()
+        local screenWidth, screenHeight = UIParent:GetSize()
+        local x, y = math.max(mouseX, right) + gap, mouseY - 32
+        if x + promptWidth > screenWidth - margin then
+            x = math.min(mouseX, left) - gap - promptWidth
+            if x < margin then
+                x = mouseX - promptWidth / 2
+                y = top + gap
+                if y + promptHeight > screenHeight - margin then
+                    y = bottom - gap - promptHeight
+                end
+            end
+        end
+
+        x = math.max(margin, math.min(x, screenWidth - promptWidth - margin))
+        y = math.max(margin, math.min(y, screenHeight - promptHeight - margin))
+        capturePrompt:ClearAllPoints()
+        capturePrompt:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x, y)
+    end
+
+    local function capture(bar, slot, anchor)
         if InCombatLockdown() or not bar.slots[slot] then return end
         local focus = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
         if focus then focus:ClearFocus() end
         captureBar, captureSlot = bar, slot
         keyboard:EnableKeyboard(true)
         keyboard:SetPropagateKeyboardInput(false)
+        promptTarget:SetText(bar.label .. " · " .. tr("Bouton %d", "Button %d"):format(slot))
+        placeCapturePrompt(anchor or bar.slots[slot].button)
+        capturePrompt:Show()
         status:SetText("")
         refreshSlots()
     end
@@ -357,7 +488,7 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
         return scroll, content
     end
 
-    local baseScroll, baseContent = scrollArea(-125, 373)
+    local baseScroll, baseContent = scrollArea(-105, 416)
     local allBars = tr("Tout le groupe Base", "Entire Base group")
     sourceMenu = ui.menu(window, 18, -69, 304, function(root)
         local function getFilter() return filter end
@@ -380,11 +511,11 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
         row.caption = ui.label(row, "", 0, -3, "GameFontHighlightSmall")
         row.slots, row.overlays = {}, {}
         for slot = 1, 12 do
-            row.slots[slot] = ui.button(row, "", (slot - 1) * 52, -21, 50, function() capture(row.bar, slot) end)
+            row.slots[slot] = ui.button(row, "", (slot - 1) * 52, -21, 50, function(self) capture(row.bar, slot, self) end)
             local overlay = CreateFrame("Button", nil, UIParent, "UIPanelButtonTemplate")
             overlay:SetFrameStrata("HIGH")
             overlay:SetFrameLevel(50)
-            overlay:SetScript("OnClick", function() capture(row.bar, slot) end)
+            overlay:SetScript("OnClick", function(self) capture(row.bar, slot, self) end)
             overlay:Hide()
             local function enter() highlight(row.bar and row.bar.slots[slot]) end
             row.slots[slot]:SetScript("OnEnter", enter)
@@ -400,9 +531,6 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
     refreshSlots = function()
         clearHalo()
         wipe(controls)
-        hint:SetText(captureSlot and (captureBar.label .. " · " ..
-            tr("Appuie sur la touche du bouton %d. Échap annule.",
-                "Press a key for button %d. Escape cancels."):format(captureSlot)) or "")
         local visible = 0
         for _, bar in ipairs(bases) do
             if not filter or filter == bar then
@@ -437,40 +565,141 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
         baseContent:SetHeight(math.max(visible * 56, 1))
     end
 
-    for index, layer in ipairs({"maj", "ctrl", "alt"}) do
-        local prefix = prefixes[layer]
-        generators[prefix] = ui.button(window,
-            tr("Générer %s", "Generate %s"):format(addon.LayerLabel(layer)),
-            18 + (index - 1) * 132, -323, 125, function()
-                cancelCapture()
-                for _, target in ipairs(targets) do
-                    if target.prefix == prefix and not target.blocked then selected[target] = true end
-                end
-                status:SetText("")
-                redraw()
-            end)
+    local function groupsFor(layer)
+        return targetGroups[layer] and targetGroups[layer].groups or {}
     end
 
-    targetMenu = ui.menu(window, 414, -321, 248, function(root)
-        for _, bar in ipairs(targets) do
-            local entry = root:CreateCheckbox(bar.label .. (bar.blocked and " · " .. bar.blocked or ""),
-                function() return selected[bar] end, function()
-                    cancelCapture()
-                    selected[bar] = not selected[bar] or nil
-                    approved = {}
-                    status:SetText("")
-                    redraw()
-                end)
-            if bar.blocked then entry:SetEnabled(false) end
+    local function missingTarget(layer)
+        return tr(
+            "Dans Configuration, crée un cadre %s, lie-le à une ou plusieurs barres d’action Blizzard ou Bartender4, puis enregistre-le.",
+            "In Settings, create a %s frame, link it to one or more Blizzard or Bartender4 action bars, then save it.")
+            :format(addon.LayerLabel(layer))
+    end
+
+    local function reserved(layer)
+        return not canUsePrefix(prefixes[layer], GetModifiedClick and GetModifiedClick("SELFCAST"))
+    end
+
+    local function clearGeneratorHover()
+        if not hoveredGenerator then return end
+        hoveredGenerator.halo:Hide()
+        hoveredGenerator = nil
+        GameTooltip:Hide()
+        if window:IsVisible() then addon.SetBindingOutlines(sourcePanels, {}) end
+    end
+
+    refreshGeneratorHover = function()
+        local generator = hoveredGenerator
+        if not generator or not window:IsVisible() then return end
+        local groups = groupsFor(generator.layer)
+        local panels = {}
+        local tooltip = GameTooltip
+        tooltip:SetOwner(generator.button, "ANCHOR_RIGHT")
+        tooltip:SetText(generator.button:GetText())
+        if reserved(generator.layer) then
+            tooltip:AddLine(tr("Cette combinaison utilise ton modificateur d’auto-incantation.",
+                "This combination uses your self-cast modifier."), 1, 0.82, 0.36, true)
+        elseif #groups == 0 then
+            tooltip:AddLine(missingTarget(generator.layer), 1, 0.82, 0.36, true)
+        else
+            for _, group in ipairs(groups) do
+                panels[#panels + 1] = group.panel
+                local source, target, matched, keyed = compareSlots(bases, group, pending)
+                tooltip:AddLine(tr("%s · %d boutons Base, %d en cible, %d positions communes.",
+                    "%s · %d Base buttons, %d target buttons, %d matching positions.")
+                    :format(group.panel.name, source, target, matched), 1, 1, 1, true)
+                local reason = not group.usable and group.bars[1].blocked
+                if reason then tooltip:AddLine(reason, 1, 0.82, 0.36, true) end
+                if target ~= keyed then
+                    tooltip:AddLine(tr("%d boutons cibles sans raccourci Base correspondant.",
+                        "%d target buttons have no matching Base shortcut."):format(target - keyed),
+                        1, 0.82, 0.36, true)
+                end
+                if matched < source then
+                    tooltip:AddLine(tr("%d positions Base sans bouton cible.",
+                        "%d Base positions have no target button."):format(source - matched),
+                        1, 0.82, 0.36, true)
+                end
+            end
         end
-    end)
-    text(tr("Conseil : garde Alt pour l’auto-incantation (lancer un sort sur toi).",
-        "Tip: Keep Alt for self-cast (casting a spell on yourself)."), 18, -355)
-    text(tr("Dans chaque cadre cible, la génération suit l’ordre des numéros de barres et des emplacements.",
-        "Within each target frame, generation follows bar numbers and button positions."), 18, -380)
-    ui.label(window, tr("Aperçu des changements", "Preview changes"), 18, -406)
-    text(tr("Coche un conflit pour remplacer le raccourci existant.", "Check a conflict to replace the existing shortcut."), 18, -428)
-    local scroll, content = scrollArea(-450, 93)
+        addon.SetBindingOutlines(sourcePanels, panels)
+        if #panels > 0 then placeHalo(generator.halo, generator.button, generator.button)
+        else generator.halo:Hide() end
+        tooltip:Show()
+    end
+
+    ui.label(window, tr("Générer par combinaison", "Generate by combination"), 18, -239)
+    for index, layer in ipairs(generationLayers) do
+        local generator = {layer = layer}
+        generators[index] = generator
+        local button = ui.button(window, tr("Générer les raccourcis du cadre %s",
+            "Generate shortcuts for the %s frame"):format(addon.LayerLabel(layer)), 18, -256, 644, function()
+            local groups = groupsFor(layer)
+            if reserved(layer) then
+                status:SetText(tr("Cette combinaison utilise ton modificateur d’auto-incantation.",
+                    "This combination uses your self-cast modifier."))
+                return
+            end
+            if #groups == 0 then status:SetText(missingTarget(layer)); return end
+
+            cancelCapture()
+            selected, approved = {}, {}
+            for _, group in ipairs(groups) do
+                for _, bar in ipairs(group.bars) do
+                    if not bar.blocked then selected[bar] = true end
+                end
+            end
+            status:SetText(next(selected) and "" or (groups[1].bars[1].blocked or ""))
+            redraw()
+        end)
+        button:SetHeight(22)
+        generator.button = button
+        button:SetMotionScriptsWhileDisabled(true)
+        generator.halo = makeHalo(button, nil, {0.29, 0.95, 0.41})
+        button:HookScript("OnEnter", function()
+            if not window:IsVisible() then return end
+            clearGeneratorHover()
+            hoveredGenerator = generator
+            refreshGeneratorHover()
+        end)
+        button:HookScript("OnLeave", function()
+            if hoveredGenerator == generator then clearGeneratorHover() end
+        end)
+    end
+    local missingHelp = text(tr(
+        "Pour activer un bouton grisé, crée un cadre associé à la combinaison et lie-le à des barres d’action.",
+        "To enable a greyed-out button, create a frame for the combination and link it to action bars."), 18, 0)
+    missingHelp:SetTextColor(0.72, 0.76, 0.81)
+
+    local function layoutGenerators()
+        local configured, missing = {}, {}
+        for _, generator in ipairs(generators) do
+            local exists = #groupsFor(generator.layer) > 0
+            local group = exists and configured or missing
+            group[#group + 1] = generator
+            generator.button:SetEnabled(exists and not reserved(generator.layer))
+        end
+        local function placeGroup(group, top)
+            for index, generator in ipairs(group) do
+                generator.button:ClearAllPoints()
+                generator.button:SetPoint("TOPLEFT", window, "TOPLEFT",
+                    18, top - (index - 1) * 24)
+            end
+            return top - #group * 24
+        end
+        local afterConfigured = placeGroup(configured, -256)
+        missingHelp:SetShown(#missing > 0)
+        if #missing > 0 then
+            missingHelp:ClearAllPoints()
+            missingHelp:SetPoint("TOPLEFT", window, "TOPLEFT", 18, afterConfigured - 2)
+            placeGroup(missing, afterConfigured - 23)
+        end
+    end
+    text(tr("Applique chaque combinaison séparément. Survole un bouton pour vérifier ses cibles.",
+        "Apply each modifier combination separately. Hover over a button to check its targets."), 18, -450)
+    ui.label(window, tr("Aperçu des changements", "Preview changes"), 18, -470)
+    text(tr("Coche un conflit pour remplacer le raccourci existant.", "Check a conflict to replace the existing shortcut."), 18, -489)
+    local scroll, content = scrollArea(-508, 74)
 
     local function getRow(index)
         if preview[index] then return preview[index] end
@@ -524,14 +753,8 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
     redraw = function(resetScroll)
         refreshSlots()
         sourceMenu:OverrideText(filter and filter.label or allBars)
-        local count, available = 0, {}
-        for _, target in ipairs(targets) do
-            if selected[target] then count = count + 1 end
-            if not target.blocked then available[target.prefix] = true end
-        end
-        for prefix, button in pairs(generators) do button:SetEnabled(not not available[prefix]) end
-        targetMenu:OverrideText(count == 0 and tr("Barres cibles", "Target bars")
-            or tr("%d barre(s) sélectionnée(s)", "%d bar(s) selected"):format(count))
+        if hoveredGenerator then refreshGeneratorHover()
+        else addon.SetBindingOutlines(sourcePanels, {}) end
         local rows = previewChanges(bases, targets, selected, pending, approved)
         local actionable, overlayCount = false, 0
         wipe(targetControls)
@@ -602,7 +825,10 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
 
     function assistant:Open()
         bases, targets = eligibleBars(nativeCommands())
-        selected, pending, approved = {}, {}, {}
+        targetGroups = groupTargets(targets)
+        layoutGenerators()
+        sourcePanels = uniquePanels(bases)
+        pending, selected, approved = {}, {}, {}
         filter = false
         self:Show()
         status:SetText("")

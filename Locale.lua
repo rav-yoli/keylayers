@@ -4,6 +4,38 @@ local columns = {deDE = 2, esES = 3, esMX = 3, zhCN = 4, zhTW = 5}
 local column = columns[locale]
 local strings = {}
 local translations = {
+    {"Versions after %s","Versionen nach %s","Versiones posteriores a %s","%s 之后的版本","%s 之後的版本"},
+    {"Release Notes lists changes since the last published tag. Shift is abbreviated S on linked bars.","Die Versionshinweise zeigen Änderungen seit dem letzten veröffentlichten Tag. Umschalt wird auf verknüpften Leisten als S angezeigt.","Las notas de versión muestran los cambios desde la última etiqueta publicada. Mayús se abrevia como S en las barras vinculadas.","版本说明列出上次发布以来的更改。关联动作条上的 Shift 简写为 S。","版本資訊列出上次發佈以來的變更。連結快捷列上的 Shift 簡寫為 S。"},
+    {"All linked frames abbreviates Ctrl as C on action bars.","Bei allen verknüpften Rahmen wird Ctrl in Aktionsleisten als C angezeigt.","En todos los marcos vinculados, Ctrl se abrevia como C en las barras de acción.","所有关联框体模式下，动作条上的 Ctrl 简写为 C。","所有連結框體模式下，快捷列上的 Ctrl 簡寫為 C。"},
+    {"Show keybindings","Tastenkürzel anzeigen","Mostrar atajos","显示快捷键","顯示快捷鍵"},
+    {"WoW or Bartender4 display","Anzeige von WoW oder Bartender4","Visualización de WoW o Bartender4","由 WoW 或 Bartender4 显示","由 WoW 或 Bartender4 顯示"},
+    {"All linked frames","Alle verknüpften Rahmen","Todos los marcos vinculados","所有关联框体","所有連結框體"},
+    {"Active frames only","Nur aktive Rahmen","Solo marcos activos","仅激活框体","僅啟用框體"},
+    {"Both KeyLayers modes apply this style to linked bars. WoW or Bartender4 display follows their own settings.","Beide KeyLayers-Modi verwenden diesen Stil für verknüpfte Leisten. WoW oder Bartender4 verwenden ihre eigenen Einstellungen.","Ambos modos de KeyLayers aplican este estilo a las barras vinculadas. WoW o Bartender4 usan sus propios ajustes.","两种 KeyLayers 模式都会将样式应用于关联动作条。WoW 或 Bartender4 模式使用其自身设置。","兩種 KeyLayers 模式都會將樣式套用到連結的快捷列。WoW 或 Bartender4 模式使用其自身設定。"},
+    {"Choose whether WoW or Bartender4, all linked frames, or only active frames show key labels.","Tastenkürzel können von WoW oder Bartender4, auf allen verknüpften Rahmen oder nur auf aktiven Rahmen angezeigt werden.","Elige si los atajos los muestra WoW o Bartender4, todos los marcos vinculados o solo los marcos activos.","可选择由 WoW 或 Bartender4、所有关联框体或仅激活框体显示快捷键。","可選擇由 WoW 或 Bartender4、所有連結框體或僅啟用框體顯示快捷鍵。"},
+    {"The shortcut capture prompt opens near the clicked button.","Der Eingabehinweis erscheint neben der angeklickten Schaltfläche.","El aviso de captura aparece cerca del botón pulsado.","快捷键录入提示在点击的按钮附近打开。","快捷鍵錄入提示會開啟在點選的按鈕附近。"},
+    {"The Style tab previews active-frame key labels directly on the action bars.","Im Reiter Stil werden Tastenkürzel aktiver Rahmen direkt auf den Aktionsleisten angezeigt.","La pestaña Estilo muestra los atajos de los marcos activos en las barras de acción.","样式标签页直接在动作条上预览激活框体的快捷键。","樣式分頁直接在快捷列上預覽啟用框體的快捷鍵。"},
+    {"Assigning a shortcut","Tastenkürzel zuweisen","Asignar un atajo","正在分配快捷键","正在指定快捷鍵"},
+    {"Button %d","Taste %d","Botón %d","按钮 %d","按鈕 %d"},
+    {"Press the key you want on its own, without Shift, Ctrl, or Alt. Escape cancels.","Drücke die gewünschte Taste allein, ohne Umschalt, Strg oder Alt. Esc bricht ab.","Pulsa la tecla que quieras, sin Mayús, Ctrl ni Alt. Esc cancela.","请单独按下所需按键，不要同时按 Shift、Ctrl 或 Alt。按 Esc 取消。","請單獨按下所需按鍵，勿同時按 Shift、Ctrl 或 Alt。按 Esc 取消。"},
+    {"Generation buttons use one column, and a prompt shows when KeyLayers is waiting for a key.","Die Schaltflächen stehen in einer Spalte. Ein Hinweis erscheint, wenn KeyLayers auf eine Taste wartet.","Los botones se muestran en una columna y aparece un aviso mientras KeyLayers espera una tecla.","生成按钮排为一列，KeyLayers 等待按键时会显示提示。","產生按鈕排成一欄，KeyLayers 等待按鍵時會顯示提示。"},
+    {"To enable a greyed-out button, create a frame for the combination and link it to action bars.","Erstelle für eine ausgegraute Schaltfläche einen Rahmen mit der Kombination und verknüpfe ihn mit Aktionsleisten.","Para habilitar un botón gris, crea un marco para la combinación y vincúlalo a barras de acción.","要启用灰色按钮，请为该组合创建框体并关联动作条。","若要啟用灰色按鈕，請為該組合建立框體並連結快捷列。"},
+    {"Configured combinations appear first. Assign keybindings comes before Profiles.","Konfigurierte Kombinationen stehen zuerst. Tastenkürzel zuweisen steht vor Profile.","Las combinaciones configuradas aparecen primero. Asignar atajos va antes de Perfiles.","已配置的组合排在前面。分配快捷键位于配置方案之前。","已設定的組合排在前面。指定快捷鍵位於設定檔之前。"},
+    {"Generate by combination","Nach Kombination erzeugen","Generar por combinación","按组合生成","按組合產生"},
+    {"Generate shortcuts for the %s frame","Kürzel für den Rahmen %s erzeugen","Generar atajos para el marco %s","为 %s 框体生成快捷键","為 %s 框體產生快捷鍵"},
+    {"This combination uses your self-cast modifier.","Diese Kombination verwendet deinen Modifikator für Selbstzauber.","Esta combinación usa el modificador de autolanzamiento.","此组合使用自我施法修饰键。","此組合使用自我施法修飾鍵。"},
+    {"In Settings, create a %s frame, link it to one or more Blizzard or Bartender4 action bars, then save it.","Erstelle in den Einstellungen einen Rahmen für %s, verknüpfe ihn mit einer oder mehreren Blizzard- oder Bartender4-Aktionsleisten und speichere ihn.","En Configuración, crea un marco para %s, vincúlalo a una o más barras de Blizzard o Bartender4 y guárdalo.","在设置中创建 %s 框体，关联一条或多条暴雪或 Bartender4 动作条，然后保存。","在設定中建立 %s 框體，連結一列或多列暴雪或 Bartender4 快捷列，再儲存。"},
+    {"%d target buttons have no matching Base shortcut.","Für %d Zieltasten gibt es kein passendes Basiskürzel.","%d botones de destino no tienen un atajo Base correspondiente.","%d 个目标按钮没有对应的基础快捷键。","%d 個目標按鈕沒有對應的基礎快捷鍵。"},
+    {"%d Base positions have no target button.","Für %d Basispositionen gibt es keine Zieltaste.","%d posiciones de Base no tienen un botón de destino.","%d 个基础位置没有目标按钮。","%d 個基礎位置沒有目標按鈕。"},
+    {"Apply each modifier combination separately. Hover over a button to check its targets.","Wende jede Kombination einzeln an. Zeige auf eine Schaltfläche, um ihre Ziele zu prüfen.","Aplica cada combinación por separado. Pasa el cursor sobre un botón para ver sus destinos.","请逐一应用修饰键组合。将鼠标悬停在按钮上可查看目标。","請逐一套用修飾鍵組合。將滑鼠停在按鈕上可查看目標。"},
+    {"Generate shortcuts with one button per modifier combination.","Erzeuge Tastenkürzel mit einer Schaltfläche pro Kombination.","Genera atajos con un botón por combinación.","每个修饰键组合使用一个按钮生成快捷键。","每個修飾鍵組合使用一個按鈕產生快捷鍵。"},
+    {"Generate","Generieren","Generar","生成","產生"},
+    {"Target frames (%d)","Zielrahmen (%d)","Marcos de destino (%d)","目标框体（%d）","目標框體（%d）"},
+    {"Apply each modifier combination separately. Alt is reserved when used for self-cast.","Wende jede Tastenkombination einzeln an. Alt bleibt für Selbstzauber reserviert, falls es dafür belegt ist.","Aplica cada combinación por separado. Alt se reserva si se usa para lanzarte hechizos.","请逐一应用修饰键组合。Alt 用于自我施法时会被保留。","請逐一套用修飾鍵組合。Alt 用於自我施法時會被保留。"},
+    {"%s · %d Base buttons, %d target buttons, %d matching positions.","%s · %d Basistasten, %d Zieltasten, %d passende Positionen.","%s · %d botones de Base, %d de destino, %d posiciones coincidentes.","%s · %d 个基础按钮，%d 个目标按钮，%d 个匹配位置。","%s · %d 個基礎按鈕，%d 個目標按鈕，%d 個相符位置。"},
+    {"Unmatched positions are skipped. You can deselect this target frame.","Positionen ohne Entsprechung werden übersprungen. Du kannst den Zielrahmen abwählen.","Las posiciones sin correspondencia se omiten. Puedes desmarcar este marco de destino.","不匹配的位置会跳过。你可以取消选择此目标框体。","不相符的位置會略過。你可以取消選取此目標框體。"},
+    {"Prefer the same number of buttons. Check the target/Base counts in the menu.","Verwende möglichst gleich viele Tasten. Im Menü stehen die Anzahlen für Ziel und Basis.","Es preferible usar el mismo número de botones. Consulta las cantidades destino/Base en el menú.","建议使用相同数量的按钮。菜单会显示目标和基础按钮数。","建議使用相同數量的按鈕。選單會顯示目標和基礎按鈕數。"},
+    {"Keybinding generation groups targets by modifier combination and previews the source and destination frames.","Die Tastenkürzel-Generierung gruppiert Ziele nach Tastenkombination und markiert Quell- und Zielrahmen.","La generación de atajos agrupa los destinos por combinación y señala los marcos de origen y destino.","快捷键生成按修饰键组合分组，并预览来源和目标框体。","快捷鍵產生按修飾鍵組合分組，並預覽來源及目標框體。"},
     {"Hover over a frame in the Change frame menu to preview its outline.","Zeige im Menü „Rahmen wechseln“ auf einen Rahmen, um seinen Umriss zu sehen.","Pasa el cursor sobre un marco en el menú Cambiar de marco para ver su contorno.","在更换框体菜单中，将鼠标悬停在框体上即可预览其轮廓。","在切換框體選單中，將滑鼠停在框體上即可預覽其外框。"},
     {"Frames and key labels stay visible outside the world map. Overlapping artwork draws beneath the map, including with OpenMap.","Rahmen und Tastenbeschriftungen bleiben außerhalb der Weltkarte sichtbar. Überlappende Elemente liegen unter der Karte, auch mit OpenMap.","Los marcos y las etiquetas de teclas siguen visibles fuera del mapa del mundo. Los elementos superpuestos quedan debajo del mapa, también con OpenMap.","框体和按键标签在世界地图外仍然可见。与地图重叠的部分绘制在地图下方，也支持 OpenMap。","框體和按鍵標籤在世界地圖外仍然可見。與地圖重疊的部分繪製在地圖下方，也支援 OpenMap。"},
     {"+ moves the frame forward, − moves it back when frames overlap. This applies to frames on the same display layer.","Bei überlappenden Rahmen rückt + den Rahmen nach vorne und − nach hinten. Das gilt für Rahmen auf derselben Anzeigeebene.","Si se solapan, + adelanta el marco y − lo retrasa. Se aplica a los marcos de la misma capa de visualización.","框体重叠时，+ 将框体前移，− 将其后移。适用于同一显示层的框体。","框體重疊時，+ 將框體往前移，− 將其往後移。適用於同一顯示層的框體。"},
@@ -293,7 +325,35 @@ function addon.Translate(fr, en)
     return strings[en] or en
 end
 
+addon.releaseHistoryBase = "1.1.13b"
 addon.releaseHistory = {
+    {"1.1.33b", addon.Translate(
+        "L’onglet Notes de version affiche les changements depuis le dernier tag publié. Sur les barres liées, Maj est abrégé en S.",
+        "Release Notes lists changes since the last published tag. Shift is abbreviated S on linked bars.")},
+    {"1.1.32b", addon.Translate(
+        "Sur les barres, le mode Tous les cadres liés abrège Ctrl en C.",
+        "All linked frames abbreviates Ctrl as C on action bars.")},
+    {"1.1.31b", addon.Translate(
+        "Choisis qui affiche les raccourcis : WoW ou Bartender4, tous les cadres liés ou uniquement les cadres actifs.",
+        "Choose whether WoW or Bartender4, all linked frames, or only active frames show key labels.")},
+    {"1.1.30b", addon.Translate(
+        "La fenêtre de saisie s’ouvre près du bouton cliqué.",
+        "The shortcut capture prompt opens near the clicked button.")},
+    {"1.1.29b", addon.Translate(
+        "L’onglet Style donne un aperçu des raccourcis des cadres actifs directement sur les barres d’action.",
+        "The Style tab previews active-frame key labels directly on the action bars.")},
+    {"1.1.28b", addon.Translate(
+        "Les boutons de génération tiennent sur une colonne. Une fenêtre indique quand KeyLayers attend une touche.",
+        "Generation buttons use one column, and a prompt shows when KeyLayers is waiting for a key.")},
+    {"1.1.27b", addon.Translate(
+        "Les combinaisons configurées passent en premier. Assigner les raccourcis précède Profils.",
+        "Configured combinations appear first. Assign keybindings comes before Profiles.")},
+    {"1.1.26b", addon.Translate(
+        "Génère les raccourcis avec un bouton par combinaison de modificateurs.",
+        "Generate shortcuts with one button per modifier combination.")},
+    {"1.1.25b", addon.Translate(
+        "La génération des raccourcis regroupe les cibles par combinaison et montre les cadres source et destination.",
+        "Keybinding generation groups targets by modifier combination and previews the source and destination frames.")},
     {"1.1.24b", addon.Translate(
         "Survole un cadre dans le menu Changer de cadre pour voir son contour.",
         "Hover over a frame in the Change frame menu to preview its outline.")},
@@ -309,4 +369,22 @@ addon.releaseHistory = {
     {"1.1.20b", addon.Translate(
         "Un filet discret encadre l’en-tête et le contenu de chaque section repliable.",
         "Collapsible sections have a subtle border around the header and its contents.")},
+    {"1.1.19b", addon.Translate(
+        "La molette fait défiler l’éditeur par petits pas. Un contour animé en pointillés indique le cadre sélectionné.",
+        "The editor scrolls in smaller steps, and an animated dashed outline marks the selected frame.")},
+    {"1.1.18b", addon.Translate(
+        "Les deux styles sont regroupés sous Apparence. La transition et le niveau d’affichage ont chacun leur section.",
+        "Both styles are grouped under Appearance. Transition and display level have separate sections.")},
+    {"1.1.17b", addon.Translate(
+        "Les sections repliables ont un chevron. Les styles par défaut et activé adoptent la même disposition en deux blocs, Fond et Bordure.",
+        "Collapsible sections use chevrons. The default and activated styles now share the same Fill and Border layout.")},
+    {"1.1.16b", addon.Translate(
+        "Ajuste la position et les dimensions par pas de 1, modifie séparément les styles par défaut et activé, et accède à Enregistrer pendant le défilement.",
+        "Adjust position and size one unit at a time, edit the default and activated styles separately, and keep Save visible while scrolling.")},
+    {"1.1.15b", addon.Translate(
+        "L’éditeur garde le cadre sélectionné et le bouton Enregistrer à l’écran. Prévisualise tes changements et choisis quoi faire des modifications non enregistrées en quittant un cadre.",
+        "The editor keeps the selected frame and Save button in view. Preview changes before saving and review unsaved edits when leaving a frame.")},
+    {"1.1.14b", addon.Translate(
+        "Les cadres et les libellés de raccourcis KeyLayers se masquent pendant l’ouverture de la carte du monde, y compris avec OpenMap.",
+        "KeyLayers frames and key labels hide while the world map is open, including when using OpenMap.")},
 }

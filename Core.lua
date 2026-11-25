@@ -1,7 +1,7 @@
 local addonName, addon = ...
 addon.title = "KeyLayers by Rav Yoli"
 local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.24b"
+addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.33b"
 -- ProfileSync scans globals before our ADDON_LOADED handler and recognizes
 -- character data by name. Keep this a plain, character-scoped saved table.
 local emptyCharacterLayout = {panels = {}, mode = "hold", learning = false}
@@ -561,6 +561,12 @@ function addon.GetPanelGeometry(panel)
 end
 
 local hoveredPanel
+local bindingSourcePanels, bindingTargetPanels
+
+function addon.SetBindingOutlines(sources, targets)
+    bindingSourcePanels, bindingTargetPanels = sources, targets
+    addon.DrawBindingOutlines(sources, targets, panelBounds, root:GetEffectiveScale())
+end
 
 local function updateDraftOutline()
     local panel = hoveredPanel or previewPanel
@@ -667,6 +673,9 @@ local function refresh()
         effects[index].panel = nil
     end
     updateDraftOutline()
+    if bindingSourcePanels then
+        addon.DrawBindingOutlines(bindingSourcePanels, bindingTargetPanels, panelBounds, scale)
+    end
     addon.UpdateEditOverlays(panelBounds, boundsForBar, layout, scale)
 end
 

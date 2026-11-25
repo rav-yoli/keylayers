@@ -313,9 +313,9 @@ local function buildWindow()
     tabDivider:SetHeight(1)
     tabDivider:SetColorTexture(0.29, 0.42, 0.54, 0.8)
     tabStates[config] = tab(window, tr("Configuration", "Settings"), 18, -39, 111, function() selectTab(config) end)
-    tabStates[profiles] = tab(window, tr("Profils", "Profiles"), 133, -39, 75, function() selectTab(profiles) end)
-    tabStates[assignment] = tab(window, tr("Assigner les raccourcis", "Assign keybindings"), 212, -39, 151,
+    tabStates[assignment] = tab(window, tr("Assigner les raccourcis", "Assign keybindings"), 133, -39, 151,
         function() selectTab(assignment) end)
+    tabStates[profiles] = tab(window, tr("Profils", "Profiles"), 288, -39, 75, function() selectTab(profiles) end)
     tabStates[notes] = tab(window, tr("Notes de version", "Release notes"), 367, -39, 135, function() selectTab(notes) end)
     for page, showState in pairs(tabStates) do showState(page == config, true) end
 
@@ -331,8 +331,10 @@ local function buildWindow()
     end)
 
     label(notes, tr("Notes de version", "Release notes"), 18, -17, "GameFontNormalLarge")
+    label(notes, tr("Versions après %s", "Versions after %s"):format(addon.releaseHistoryBase),
+        18, -43, "GameFontHighlightSmall")
     local releaseScroll = CreateFrame("ScrollFrame", nil, notes, "UIPanelScrollFrameTemplate")
-    releaseScroll:SetPoint("TOPLEFT", 18, -54)
+    releaseScroll:SetPoint("TOPLEFT", 18, -69)
     releaseScroll:SetPoint("BOTTOMRIGHT", -34, 130)
     local releaseContent = CreateFrame("Frame", nil, releaseScroll)
     releaseContent:SetWidth(618)
@@ -340,14 +342,30 @@ local function buildWindow()
     releaseScroll:SetScrollChild(releaseContent)
     local entries = {}
     for index, entry in ipairs(addon.releaseHistory) do
-        entries[index] = ("|cffffd100%s|r\n%s"):format(entry[1], entry[2])
+        local row = CreateFrame("Frame", nil, releaseContent)
+        row:SetWidth(618)
+        label(row, entry[1], 0, 0, "GameFontNormal")
+        local description = label(row, entry[2], 0, -17, "GameFontHighlight")
+        description:SetWidth(612)
+        description:SetJustifyH("LEFT")
+        description:SetWordWrap(true)
+        entries[index] = {row = row, description = description}
     end
-    local releaseText = label(releaseContent, table.concat(entries, "\n\n"), 0, 0, "GameFontHighlight")
-    releaseText:SetWidth(618)
-    releaseText:SetJustifyH("LEFT")
-    releaseText:SetWordWrap(true)
+    releaseScroll:EnableMouseWheel(true)
+    releaseScroll:SetScript("OnMouseWheel", function(self, delta)
+        local offset = self:GetVerticalScroll() - delta * 42
+        self:SetVerticalScroll(math.max(0, math.min(offset, self:GetVerticalScrollRange())))
+    end)
     notes:SetScript("OnShow", function()
-        releaseContent:SetHeight(math.max(1, math.ceil(releaseText:GetStringHeight()) + 8))
+        local height = 0
+        for _, entry in ipairs(entries) do
+            entry.row:ClearAllPoints()
+            entry.row:SetPoint("TOPLEFT", releaseContent, "TOPLEFT", 0, -height)
+            local rowHeight = 27 + math.ceil(entry.description:GetStringHeight())
+            entry.row:SetHeight(rowHeight)
+            height = height + rowHeight
+        end
+        releaseContent:SetHeight(math.max(1, height))
         releaseScroll:UpdateScrollChildRect()
         releaseScroll:SetVerticalScroll(0)
         if releaseScroll.ScrollBar then

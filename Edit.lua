@@ -4,8 +4,8 @@ local overlays, badges, placed = {}, {}, {}
 local editor, drag
 local tr = addon.Translate
 
--- One mouse-transparent marker follows the editor selection, independently of activation.
 local selection
+local bindingSources, bindingTargets = {}, {}
 local selectionGap, dashThickness = 8, 3
 local dashSpeed = 27
 
@@ -26,7 +26,7 @@ local function paintSelection(frame)
                 local dash = frame.dashes[used]
                 if not dash then
                     dash = frame:CreateTexture(nil, "OVERLAY")
-                    dash:SetColorTexture(1, 0.76, 0.28, 0.98)
+                    dash:SetColorTexture(unpack(frame.dashColor))
                     frame.dashes[used] = dash
                 end
                 local along = (dx < 0 or dy < 0) and last or first
@@ -47,39 +47,68 @@ local function paintSelection(frame)
     for index = used + 1, #frame.dashes do frame.dashes[index]:Hide() end
 end
 
+local function makeMarker(color)
+    local marker = CreateFrame("Frame", nil, root)
+    marker:SetFrameStrata("HIGH")
+    marker:SetFrameLevel(9001)
+    marker:EnableMouse(false)
+    marker.dashColor = color
+    marker.dashes, marker.phase, marker.elapsed = {}, 0, 0
+    marker:SetScript("OnUpdate", function(self, elapsed)
+        self.elapsed = self.elapsed + elapsed
+        if self.elapsed < 1 / 30 then return end
+        self.phase = self.phase + dashSpeed * self.elapsed
+        self.elapsed = 0
+        paintSelection(self)
+    end)
+    marker:Hide()
+    return marker
+end
+
+local function placeMarker(marker, left, bottom, width, height)
+    if left ~= marker.outlineLeft or bottom ~= marker.outlineBottom then
+        marker:ClearAllPoints()
+        marker:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", left - selectionGap, bottom - selectionGap)
+        marker.outlineLeft, marker.outlineBottom = left, bottom
+    end
+    width, height = width + 2 * selectionGap, height + 2 * selectionGap
+    if width ~= marker.outlineWidth or height ~= marker.outlineHeight then
+        marker.outlineWidth, marker.outlineHeight = width, height
+        marker:SetSize(width, height)
+        paintSelection(marker)
+    end
+    addon.SetMapAwareStrata(marker, "HIGH")
+    marker:Show()
+end
+
+local gold = {1, 0.76, 0.28, 0.98}
+local green = {0.29, 0.95, 0.41, 0.98}
+
 function addon.UpdateDraftOutline(left, bottom, width, height)
     if not left then
         if selection then selection:Hide() end
         return
     end
-    if not selection then
-        selection = CreateFrame("Frame", nil, root)
-        selection:SetFrameStrata("HIGH")
-        selection:SetFrameLevel(9001)
-        selection:EnableMouse(false)
-        selection.dashes, selection.phase, selection.elapsed = {}, 0, 0
-        selection:SetScript("OnUpdate", function(self, elapsed)
-            self.elapsed = self.elapsed + elapsed
-            if self.elapsed < 1 / 30 then return end
-            self.phase = self.phase + dashSpeed * self.elapsed
-            self.elapsed = 0
-            paintSelection(self)
-        end)
-        selection:Hide()
+    if not selection then selection = makeMarker(gold) end
+    placeMarker(selection, left, bottom, width, height)
+end
+
+function addon.DrawBindingOutlines(sources, targets, bounds, scale)
+    local function placeGroup(markers, panels, color)
+        for index, panel in ipairs(panels) do
+            local left, bottom, width, height = bounds(panel, scale)
+            local marker = markers[index]
+            if not marker then
+                marker = makeMarker(color)
+                markers[index] = marker
+            end
+            if left then placeMarker(marker, left, bottom, width, height)
+            else marker:Hide() end
+        end
+        for index = #panels + 1, #markers do markers[index]:Hide() end
     end
-    if left ~= selection.outlineLeft or bottom ~= selection.outlineBottom then
-        selection:ClearAllPoints()
-        selection:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", left - selectionGap, bottom - selectionGap)
-        selection.outlineLeft, selection.outlineBottom = left, bottom
-    end
-    width, height = width + 2 * selectionGap, height + 2 * selectionGap
-    if width ~= selection.outlineWidth or height ~= selection.outlineHeight then
-        selection.outlineWidth, selection.outlineHeight = width, height
-        selection:SetSize(width, height)
-        paintSelection(selection)
-    end
-    addon.SetMapAwareStrata(selection, "HIGH")
-    selection:Show()
+    placeGroup(bindingSources, sources, gold)
+    placeGroup(bindingTargets, targets, green)
 end
 
 local function finishDrag()
