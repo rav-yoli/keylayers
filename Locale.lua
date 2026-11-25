@@ -241,6 +241,9 @@ function addon.Translate(fr, en)
 end
 
 addon.releaseHistory = {
+    {"1.1.14b", addon.Translate(
+        "Les cadres et les libellés de raccourcis KeyLayers se masquent pendant l’ouverture de la carte du monde, y compris avec OpenMap.",
+        "KeyLayers frames and key labels hide while the world map is open, including when using OpenMap.")},
     {"1.1.13b", addon.Translate(
         "Le tchat Glass est disponible comme type de cadre lié. Il suit la fenêtre principale de Glass Forever quand elle est déplacée ou redimensionnée.",
         "Glass chat is available as a linked frame type. It follows the main Glass Forever chat window as it moves or resizes.")},
@@ -253,7 +256,4 @@ addon.releaseHistory = {
     {"1.1.10b", addon.Translate(
         "ProfileSync peut copier ta disposition KeyLayers d’un personnage à l’autre, avec ses cadres, ses déclencheurs et ses styles.",
         "ProfileSync can copy your KeyLayers layout between characters, including frames, triggers, and styles.")},
-    {"1.1.9b", addon.Translate(
-        "L’onglet Notes de version affiche les cinq dernières versions, de la plus récente à la plus ancienne. Fais défiler la liste si le texte dépasse.",
-        "The Release Notes tab shows the five latest versions, newest first. Scroll to read any entries below the visible area.")},
 }

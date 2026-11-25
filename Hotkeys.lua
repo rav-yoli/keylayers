@@ -109,9 +109,9 @@ local function showKey(button, key, style)
     label:Show()
 end
 
-function addon.UpdateGameplayHotkeys(activePanels)
+function addon.UpdateGameplayHotkeys(activePanels, mapVisible)
     local layout = KeyLayersCharLayout
-    if not layout.activeHotkeysOnly or suspended then
+    if not layout.activeHotkeysOnly or suspended or mapVisible then
         for button, state in pairs(managed) do restore(button, state) end
         return
     end

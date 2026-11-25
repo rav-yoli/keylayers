@@ -1,7 +1,7 @@
 local addonName, addon = ...
 addon.title = "KeyLayers by Rav Yoli"
 local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.13b"
+addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.14b"
 -- ProfileSync scans globals before our ADDON_LOADED handler and recognizes
 -- character data by name. Keep this a plain, character-scoped saved table.
 local emptyCharacterLayout = {panels = {}, mode = "hold", learning = false}
@@ -616,7 +616,13 @@ local function hasVisiblePaint(style)
 end
 
 local activePanels = {}
+local worldMapVisible = false
 local function animate(updateHotkeys)
+    -- OpenMap renders inside the normal world map.
+    local map = _G.WorldMapFrame
+    local mapVisible = map and map:IsVisible() or false
+    updateHotkeys = updateHotkeys or mapVisible ~= worldMapVisible
+    worldMapVisible = mapVisible
     local now = GetTime()
     local activeToggle = addon.ActiveToggle()
     local combatBackground
@@ -676,7 +682,7 @@ local function animate(updateHotkeys)
                     frame.tabActive, frame.tabBorder = hintActive, hintStyle
                 end
             end
-            local visible = frame.hasBounds and (alpha > 0 or showDefaultLayer or frame.hasTab)
+            local visible = not mapVisible and frame.hasBounds and (alpha > 0 or showDefaultLayer or frame.hasTab)
                 and not (addon.IsEditingPanel and addon.IsEditingPanel(panel))
             if frame:IsShown() ~= visible then frame:SetShown(visible) end
             if visible and panel.kind == "chat" then
@@ -690,7 +696,7 @@ local function animate(updateHotkeys)
         end
     end
     updateCombatBackground(combatBackground)
-    if updateHotkeys then addon.UpdateGameplayHotkeys(activePanels) end
+    if updateHotkeys then addon.UpdateGameplayHotkeys(activePanels, mapVisible) end
 end
 
 function addon.Refresh()
