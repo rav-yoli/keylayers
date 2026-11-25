@@ -1,6 +1,5 @@
 local _, addon = ...
 local managed, labels, cachedKeys = {}, {}, {}
-local artwork
 local suspended = false
 
 local function restore(button, state)
@@ -90,15 +89,14 @@ local function showKey(button, key, style)
         return
     end
     if not label then
-        if not artwork then
-            artwork = CreateFrame("Frame", nil, UIParent)
-            artwork:SetFrameStrata("HIGH")
-            artwork:EnableMouse(false)
-        end
+        local artwork = CreateFrame("Frame", nil, UIParent)
+        artwork:SetFrameStrata("HIGH")
+        artwork:SetAllPoints(button)
+        artwork:EnableMouse(false)
         label = artwork:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         label:SetPoint("TOPRIGHT", button, "TOPRIGHT", -2, -2)
         label:SetShadowOffset(1, -1)
-        entry = {label = label}
+        entry = {label = label, artwork = artwork}
         labels[button] = entry
     end
     if entry.style ~= (style or false) then
@@ -107,18 +105,19 @@ local function showKey(button, key, style)
     end
     if label:GetText() ~= key then label:SetText(key) end
     label:Show()
+    addon.SetMapAwareStrata(entry.artwork, "HIGH", button)
 end
 
-function addon.UpdateGameplayHotkeys(activePanels, mapVisible)
+function addon.UpdateGameplayHotkeys(activePanels)
     local layout = KeyLayersCharLayout
-    if not layout.activeHotkeysOnly or suspended or mapVisible then
+    if not layout.activeHotkeysOnly or suspended then
         for button, state in pairs(managed) do restore(button, state) end
         return
     end
 
     for _, state in pairs(managed) do state.present, state.key = false, nil end
     for _, panel in ipairs(layout.panels) do
-        local layer = addon.PanelKeyLayer(panel)
+        local layer = addon.PanelKeyLayer(panel, activePanels[panel] == "toggle")
         local prefix = layer and addon.BindingPrefix(layer)
         local ids = prefix and addon.BarSelection(panel)
         for id = 1, ids and addon.barCounts[panel.kind] or 0 do

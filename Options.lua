@@ -126,7 +126,7 @@ local function copyIcon(control, x, y)
 end
 
 local function radio(root, caption, value, current, select)
-    root:CreateRadio(caption, function() return current() == value end,
+    return root:CreateRadio(caption, function() return current() == value end,
         function() select(value) end)
 end
 
@@ -134,10 +134,22 @@ local function confirm(message, accept, cancel)
     StaticPopupDialogs.BARTENDERGLOW_CONFIRM = {
         text = "%s", button1 = ACCEPT, button2 = CANCEL, timeout = 0,
         whileDead = true, hideOnEscape = true,
-        OnAccept = function(_, action) action.accept() end,
+        OnAccept = function(dialog, action) action.accept(dialog) end,
         OnCancel = function(_, action) if action.cancel then action.cancel() end end,
     }
     StaticPopup_Show("BARTENDERGLOW_CONFIRM", message, nil, {accept = accept, cancel = cancel})
+end
+
+local function sameSettings(left, right)
+    if left == right then return true end
+    if type(left) ~= "table" or type(right) ~= "table" then return false end
+    for key, value in pairs(left) do
+        if not sameSettings(value, right[key]) then return false end
+    end
+    for key in pairs(right) do
+        if left[key] == nil then return false end
+    end
+    return true
 end
 
 local fields = {
@@ -210,7 +222,7 @@ local function buildWindow()
     credit:SetText("by Rav Yoli  ·  v" .. addon.version)
     local close = CreateFrame("Button", nil, window, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -4, -4)
-    table.insert(UISpecialFrames, window:GetName())
+
 
     local config = CreateFrame("Frame", nil, window)
     config:SetPoint("TOPLEFT", 0, -70)
@@ -231,21 +243,33 @@ local function buildWindow()
 
     local selected, draft, profile
     local refresh, pick, setEditing, closeHints, openActivation, closeActivation, cancelShortcutCapture
+    local updateHeading, requestPick, leaveDraft
+    local ui = {}
+    local pendingToggleKey
+    local stopFrameCapture = function() end
     local editing, inactive = false, false
     local keybinds
-    local styleKeys = {}
-    for _, key in ipairs(addon.styleKeys) do styleKeys[key] = true end
-    local function fieldTarget(key, panel)
-        panel = panel or draft
-        return inactive and styleKeys[key] and panel.inactiveStyle or panel
+    local function defaultStyle(panel, write)
+        if panel.inactiveStyle then return panel.inactiveStyle end
+        if panel.useDefaultStyle then return panel end
+
+        -- Legacy frames can have a separate activated style with a transparent default.
+        local style = {}
+        addon.CopyStyle(panel, style)
+        style.fillAlpha, style.borderAlpha = 0, 0
+        if write then panel.inactiveStyle = style end
+        return style
     end
     local function layout() return KeyLayersCharLayout end
     local function refreshPreview()
         local panel = window:IsShown() and config:IsShown() and draft or nil
-        addon.SetDraftPreview(selected, panel, inactive)
+        addon.SetDraftPreview(selected, panel, inactive, pendingToggleKey,
+            panel and inactive and not panel.inactiveStyle and defaultStyle(panel) or nil)
+        if updateHeading then updateHeading() end
+        if ui.updateHint and draft then ui.updateHint() end
     end
     local tabStates = {}
-    local function selectTab(page)
+    local function selectTabNow(page)
         if page == assignment and InCombatLockdown() then
             notify(tr("Mode Édition indisponible en combat.", "Edit mode is unavailable in combat."))
             return
@@ -275,6 +299,14 @@ local function buildWindow()
         end
         refreshPreview()
     end
+    local function selectTab(page)
+        if page == config and config:IsShown() then return end
+        if page == assignment and InCombatLockdown() then
+            notify(tr("Mode Édition indisponible en combat.", "Edit mode is unavailable in combat."))
+            return
+        end
+        leaveDraft(function() selectTabNow(page) end)
+    end
     local tabDivider = window:CreateTexture(nil, "BACKGROUND")
     tabDivider:SetPoint("TOPLEFT", 10, -68)
     tabDivider:SetPoint("TOPRIGHT", -10, -68)
@@ -288,8 +320,14 @@ local function buildWindow()
     for page, showState in pairs(tabStates) do showState(page == config, true) end
 
     local editToggle = button(window, tr("Mode Édition", "Edit mode"), 510, -39, 152, function()
-        setEditing(not editing)
-        if not editing and assignment:IsShown() then selectTab(config) end
+        if editing then
+            leaveDraft(function()
+                setEditing(false)
+                if assignment:IsShown() then selectTabNow(config) end
+            end)
+        else
+            setEditing(true)
+        end
     end)
 
     label(notes, tr("Notes de version", "Release notes"), 18, -17, "GameFontNormalLarge")
@@ -334,49 +372,198 @@ local function buildWindow()
         issueField:HighlightText()
     end)
 
-    button(config, tr("Déclencheurs", "Triggers"), 18, -4, 173, function()
-        openActivation()
+    button(config, tr("Déclencheurs globaux", "Global triggers"), 18, -4, 173, function()
+        leaveDraft(function() openActivation() end)
     end)
     local altWarning = label(config, tr("Alt + F4 à éviter (ferme le jeu)", "Avoid Alt + F4 (closes the game)"),
         506, -7, "GameFontHighlightSmall")
     altWarning:SetWidth(156)
     altWarning:SetJustifyH("LEFT")
     altWarning:SetWordWrap(true)
-    section(config, tr("Cadre en cours d’édition", "Frame being edited"), -31, 50)
-    local panels = menu(config, 18, -55, 256, function(root)
+    section(config, tr("Cadre en cours d’édition", "Frame being edited"), -31, 86)
+    local currentName = label(config, "", 18, -57, "GameFontNormalLarge")
+    currentName:SetWidth(325)
+    currentName:SetJustifyH("LEFT")
+    currentName:SetWordWrap(false)
+    local currentDetails = label(config, "", 18, -79, "GameFontHighlightSmall")
+    currentDetails:SetWidth(325)
+    currentDetails:SetJustifyH("LEFT")
+    currentDetails:SetWordWrap(false)
+    local draftStatus = label(config, "", 18, -98, "GameFontNormalSmall")
+    local hoveredIndex
+    local function clearFrameHover()
+        hoveredIndex = nil
+        addon.SetHoveredPanel(nil)
+    end
+    local panels = menu(config, 348, -54, 156, function(root)
         for index, panel in ipairs(layout().panels) do
-            radio(root, panel.name, index, function() return selected end, pick)
+            local entry = radio(root, panel.name, index, function() return selected end, function(value)
+                clearFrameHover()
+                requestPick(value)
+            end)
+            entry:SetOnEnter(function()
+                hoveredIndex = index
+                addon.SetHoveredPanel(index == selected and draft or panel)
+            end)
+            entry:SetOnLeave(function()
+                if hoveredIndex == index then clearFrameHover() end
+            end)
         end
     end)
-    button(config, tr("Nouveau cadre", "New frame"), 284, -53, 130, function()
+    panels:RegisterCallback("OnMenuClose", clearFrameHover)
+    panels:HookScript("OnHide", clearFrameHover)
+    local function makeDraft(actionBars)
         if not editing then setEditing(true) end
         local panel = addon.NewPanel(tr("Nouveau cadre", "New frame"))
+        panel.layer = "always"
+        if actionBars then
+            local loaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
+            panel.kind = loaded and loaded("Bartender4") and "bars" or "blizzard"
+        end
         if editing then
             local space = UIParent:GetWidth() - window:GetWidth() * window:GetScale()
             panel.x = math.floor((space - UIParent:GetWidth()) / 2)
         end
-        pick(nil, panel)
-        refreshPreview()
+        return panel
+    end
+    ui.newFrame = menu(config, 512, -54, 147, function(root)
+        root:CreateButton(tr("Mettre en évidence des barres d’action", "Highlight action bars"), function()
+            leaveDraft(function() pick(nil, makeDraft(true)) end)
+        end)
+        root:CreateButton(tr("Décorer un élément de l’interface", "Decorate a UI element"), function()
+            leaveDraft(function() pick(nil, makeDraft(false)) end)
+        end)
     end)
-    local frameScope = label(config, tr("Les réglages ci-dessous s’appliquent à ce cadre.", "The settings below apply to this frame."),
-        429, -49, "GameFontHighlightSmall")
-    frameScope:SetWidth(229)
-    frameScope:SetWordWrap(true)
-    frameScope:SetJustifyH("LEFT")
-    local editor = CreateFrame("Frame", nil, config)
-    editor:SetPoint("TOPLEFT", 0, -86)
-    editor:SetPoint("BOTTOMRIGHT")
-    section(editor, tr("Cadre", "Frame"), -1, 68)
-    section(editor, tr("Apprentissage", "Learning"), -78, 57)
-    section(editor, tr("Disposition", "Layout"), -144, 79)
-    section(editor, tr("Habillage", "Appearance"), -232, 221)
-    section(editor, tr("Transition et niveau", "Transition and level"), -462, 66)
-    local name = field(editor, tr("Nom du cadre", "Frame name"), 18, -27, 232)
+    ui.newFrame:OverrideText(tr("Nouveau cadre", "New frame"))
+
+    ui.form = CreateFrame("ScrollFrame", nil, config, "UIPanelScrollFrameTemplate")
+    ui.form:SetPoint("TOPLEFT", 0, -126)
+    ui.form:SetPoint("BOTTOMRIGHT", -30, 69)
+    local editor = CreateFrame("Frame", nil, ui.form)
+    editor:SetSize(650, 1)
+    ui.form:SetScrollChild(editor)
+    ui.form:EnableMouseWheel(true)
+    ui.form:SetScript("OnMouseWheel", function(self, delta)
+        local target = self:GetVerticalScroll() - delta * 32
+        self:SetVerticalScroll(math.max(0, math.min(self:GetVerticalScrollRange(), target)))
+    end)
+    ui.empty = label(config, tr("Crée un cadre pour commencer.", "Create a frame to get started."),
+        18, -141, "GameFontHighlight")
+    ui.footer = CreateFrame("Frame", nil, config)
+    ui.footer:SetPoint("BOTTOMLEFT", 0, 32)
+    ui.footer:SetPoint("BOTTOMRIGHT", 0, 32)
+    ui.footer:SetHeight(36)
+    local footerDivider = ui.footer:CreateTexture(nil, "ARTWORK")
+    footerDivider:SetPoint("TOPLEFT", 10, 0)
+    footerDivider:SetPoint("TOPRIGHT", -10, 0)
+    footerDivider:SetHeight(1)
+    footerDivider:SetColorTexture(0.29, 0.42, 0.54, 0.8)
+    ui.groups = {}
+    local function group(title, height, collapsed, parent, rows)
+        rows = rows or ui.groups
+        local block = CreateFrame("Frame", nil, parent or editor)
+        block:SetWidth(650)
+        local row = {block = block, height = height, closed = collapsed}
+        rows[#rows + 1] = row
+        if collapsed ~= nil then
+            local border = CreateFrame("Frame", nil, block, "BackdropTemplate")
+            local inset = parent and 12 or 8
+            border:SetPoint("TOPLEFT", inset, 0)
+            border:SetPoint("BOTTOMRIGHT", -inset, 0)
+            border:SetBackdrop({edgeFile = [[Interface\Buttons\WHITE8X8]], edgeSize = 1})
+            border:EnableMouse(false)
+            -- The nested style panels draw above the section body.
+            border:SetFrameLevel(block:GetFrameLevel() + 8)
+            row.body = CreateFrame("Frame", nil, block)
+            row.body:SetPoint("TOPLEFT", 0, -32)
+            row.body:SetPoint("BOTTOMRIGHT")
+            local disclosure = CreateFrame("Button", nil, block)
+            disclosure:SetPoint("TOPLEFT", parent and 22 or 10, 0)
+            disclosure:SetPoint("TOPRIGHT", parent and -16 or -10, 0)
+            disclosure:SetHeight(30)
+            local background = disclosure:CreateTexture(nil, "BACKGROUND")
+            background:SetAllPoints()
+            local hover = disclosure:CreateTexture(nil, "HIGHLIGHT")
+            hover:SetAllPoints()
+            hover:SetColorTexture(0.48, 0.72, 0.88, 0.13)
+            local caption = label(disclosure, title, 32, -8, "GameFontHighlight")
+            caption:SetPoint("RIGHT", -12, 0)
+            caption:SetJustifyH("LEFT")
+            local upper, lower = disclosure:CreateLine(nil, "ARTWORK"), disclosure:CreateLine(nil, "ARTWORK")
+            for _, line in ipairs({upper, lower}) do
+                line:SetThickness(2)
+                line:SetColorTexture(0.54, 0.83, 0.96, 1)
+            end
+            local function updateDisclosure()
+                border:SetBackdropBorderColor(0.40, 0.57, 0.68, row.closed and 0.22 or 0.68)
+                if row.closed then
+                    upper:SetStartPoint("LEFT", disclosure, 13, 5)
+                    upper:SetEndPoint("LEFT", disclosure, 18, 0)
+                    lower:SetStartPoint("LEFT", disclosure, 18, 0)
+                    lower:SetEndPoint("LEFT", disclosure, 13, -5)
+                    background:SetColorTexture(0.13, 0.20, 0.28, 1)
+                else
+                    upper:SetStartPoint("LEFT", disclosure, 11, 3)
+                    upper:SetEndPoint("LEFT", disclosure, 16, -2)
+                    lower:SetStartPoint("LEFT", disclosure, 16, -2)
+                    lower:SetEndPoint("LEFT", disclosure, 21, 3)
+                    background:SetColorTexture(0.16, 0.32, 0.40, 1)
+                end
+            end
+            updateDisclosure()
+            disclosure:SetScript("OnClick", function()
+                row.closed = not row.closed
+                updateDisclosure()
+                ui.reflow()
+            end)
+        else
+            row.body = block
+            section(block, title, 0, height)
+        end
+        return row.body, row
+    end
+    local function placeGroups(parent, rows, y)
+        for _, row in ipairs(rows) do
+            row.block:ClearAllPoints()
+            row.block:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
+            row.block:SetHeight(row.closed and 30 or row.height)
+            if row.body ~= row.block then row.body:SetShown(not row.closed) end
+            if row.block:IsShown() then y = y + row.block:GetHeight() + 6 end
+        end
+        return y
+    end
+    ui.reflow = function()
+        ui.appearanceRow.height = placeGroups(ui.appearance, ui.styleGroups, 111) + 4
+        editor:SetHeight(math.max(1, placeGroups(editor, ui.groups, 0)))
+        ui.form:UpdateScrollChildRect()
+        local range = ui.form:GetVerticalScrollRange()
+        ui.form:SetVerticalScroll(math.min(ui.form:GetVerticalScroll(), range))
+    end
+    ui.target = group(tr("Quoi encadrer ?", "What should the frame surround?"), 166)
+    ui.geometry, ui.geometryRow = group(tr("Position et dimensions", "Position and size"), 86, true)
+    ui.activation = group(tr("Quand l’afficher ?", "When should it appear?"), 146)
+    ui.appearance, ui.appearanceRow = group(tr("Apparence", "Appearance"), 103)
+    local appearanceBackground = ui.appearance:CreateTexture(nil, "BACKGROUND", nil, -1)
+    appearanceBackground:SetPoint("TOPLEFT", 7, 0)
+    appearanceBackground:SetPoint("BOTTOMRIGHT", -7, 0)
+    appearanceBackground:SetColorTexture(0.10, 0.15, 0.21, 0.9)
+    local appearanceRail = ui.appearance:CreateTexture(nil, "ARTWORK")
+    appearanceRail:SetPoint("TOPLEFT", 7, 0)
+    appearanceRail:SetPoint("BOTTOMLEFT", 7, 0)
+    appearanceRail:SetWidth(2)
+    appearanceRail:SetColorTexture(0.29, 0.58, 0.71, 1)
+    ui.styleGroups = {}
+    ui.default = group(tr("Style par défaut", "Default style"), 278, false, ui.appearance, ui.styleGroups)
+    ui.styles, ui.stylesRow = group(tr("Style activé", "Activated style"), 278, true, ui.appearance, ui.styleGroups)
+    ui.transition = group(tr("Transition", "Transition"), 109, true)
+    ui.display = group(tr("Niveau d’affichage", "Display level"), 91, true)
+
+    local name = field(ui.target, tr("Renommer", "Rename"), 18, -31, 290)
     local kinds = addon.kindLabels
     local function chatLabel(id)
         return tr("Tchat %d", "Chat %d"):format(id)
     end
-    local kind = menu(editor, 272, -42, 160, function(root)
+    local kind = menu(ui.target, 340, -46, 265, function(root)
         local function current()
             return draft.kind == "chat" and draft.chatId or draft.kind
         end
@@ -404,11 +591,97 @@ local function buildWindow()
             end
         end
     end)
-    local layer = button(editor, "", 446, -42, 216, function()
-        openActivation()
+    label(ui.target, tr("Type de cadre", "Frame type"), 340, -31)
+    label(ui.activation, tr("Touche maintenue", "Hold key"), 18, -32)
+    label(ui.activation, tr("Couche à activer", "Layer to activate"), 223, -32)
+    label(ui.activation, tr("Raccourci de bascule", "Toggle shortcut"), 421, -32)
+    local function setFrameHold(key)
+        if addon.ActivationMode(draft) == "latch" then draft.toggleLayer = draft.layer end
+        draft.activationMode = key and "hold" or "none"
+        draft.layer = key or "always"
+        refresh()
+        refreshPreview()
+    end
+    local function setToggleLayer(key)
+        local old = addon.PanelToggle(draft)
+        if old and key == addon.ToggleModifier(draft) then return end
+        local oldKey = addon.PanelToggleKey(draft)
+        if addon.ActivationMode(draft) == "latch" then draft.activationMode, draft.layer = "none", "always" end
+        if not key then
+            draft.toggleId, draft.toggleLayer, draft.toggleModifier = nil, nil, nil
+            pendingToggleKey = nil
+        else
+            if type(old) ~= "number" then
+                pendingToggleKey = oldKey
+                draft.toggleId = addon.NewPanelToggleId()
+            end
+            draft.toggleLayer, draft.toggleModifier = nil, key
+        end
+        refresh()
+        refreshPreview()
+    end
+    ui.hold = menu(ui.activation, 18, -48, 190, function(root)
+        local function current() return addon.HoldLayer(draft) or false end
+        radio(root, addon.PanelToggle(draft) and tr("Aucune", "None")
+            or tr("Toujours visible", "Always visible"), false, current, function() setFrameHold(nil) end)
+        for _, key in ipairs(addon.layers) do
+            local holdKey = key == "base" and "unmodified" or key
+            radio(root, addon.LayerLabel(holdKey), holdKey, current, setFrameHold)
+        end
     end)
-    label(editor, tr("Type de cadre", "Frame type"), 272, -27)
-    label(editor, tr("Activation", "Activation"), 446, -27)
+    ui.toggle = menu(ui.activation, 223, -48, 182, function(root)
+        local function current() return addon.PanelToggle(draft) and addon.ToggleModifier(draft) or false end
+        radio(root, tr("Aucune", "None"), false, current, function() setToggleLayer(nil) end)
+        for _, key in ipairs(addon.layers) do radio(root, addon.LayerLabel(key), key, current, setToggleLayer) end
+    end)
+    ui.activationHelp = label(ui.activation, "", 18, -84, "GameFontHighlightSmall")
+    ui.activationHelp:SetWidth(602)
+    ui.activationHelp:SetJustifyH("LEFT")
+    ui.activationHelp:SetWordWrap(true)
+    ui.activationHelp:SetHeight(40)
+    ui.capture = CreateFrame("Frame", nil, window)
+    ui.capture:SetAllPoints(window)
+    local function cancelFrameCapture()
+        if not ui.capturing then return end
+        ui.capturing = false
+        ui.capture:EnableKeyboard(false)
+        if draft then refresh() end
+    end
+    stopFrameCapture = cancelFrameCapture
+    ui.toggleKey = button(ui.activation, "", 421, -48, 194, function(self, mouseButton)
+        if ui.capturing then cancelFrameCapture(); notify(); return end
+        if mouseButton == "RightButton" then
+            pendingToggleKey = false
+            refresh()
+            refreshPreview()
+            return
+        end
+        if InCombatLockdown() then
+            notify(tr("Modifie les raccourcis hors combat.", "Change shortcuts out of combat."))
+            return
+        end
+        local focus = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+        if focus then focus:ClearFocus() end
+        ui.capturing = true
+        ui.capture:EnableKeyboard(true)
+        ui.capture:SetPropagateKeyboardInput(false)
+        self:SetText(tr("Appuie sur une touche…", "Press a key…"))
+        notify(tr("Appuie sur une touche ou sur Échap pour annuler.", "Press a key or Escape to cancel."))
+    end)
+    ui.toggleKey:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    ui.capture:SetScript("OnKeyDown", function(_, key)
+        if not ui.capturing then return end
+        if key == "ESCAPE" then cancelFrameCapture(); notify(); return end
+        if key == "UNKNOWN" or key:match("^[LR]?CTRL$") or key:match("^[LR]?SHIFT$") or key:match("^[LR]?ALT$") then return end
+        if key == "F4" and IsAltKeyDown() then return end
+        if IsShiftKeyDown() then key = "SHIFT-" .. key end
+        if IsControlKeyDown() then key = "CTRL-" .. key end
+        if IsAltKeyDown() then key = "ALT-" .. key end
+        pendingToggleKey = key
+        cancelFrameCapture()
+        refreshPreview()
+        notify()
+    end)
     local activationPopup = CreateFrame("Frame", nil, window, "BackdropTemplate")
     activationPopup:SetSize(605, 518)
     activationPopup:SetPoint("CENTER")
@@ -423,7 +696,7 @@ local function buildWindow()
     activationPopup:Hide()
     closeActivation = function() activationPopup:Hide() end
     label(activationPopup, tr("Déclencheurs", "Triggers"), 16, -16, "GameFontNormalLarge")
-    label(activationPopup, tr("Les deux colonnes se règlent indépendamment.", "Configure the two columns independently."),
+    label(activationPopup, tr("Les changements s’appliquent immédiatement.", "Changes apply immediately."),
         16, -43, "GameFontHighlightSmall")
     label(activationPopup, tr("Maintien : surbrillance pendant l’appui, sans redirection des raccourcis.",
         "Hold: highlights while pressed, without remapping shortcuts."), 16, -60, "GameFontHighlightSmall")
@@ -653,6 +926,7 @@ local function buildWindow()
             end
             panel.toggleId = type(toggle) == "number" and toggle or nil
             panel.toggleLayer = type(toggle) == "string" and toggle or nil
+            if not toggle then panel.toggleModifier = nil end
         end
         local target, saved = targetFor(index), layout().panels[index]
         set(target)
@@ -742,6 +1016,7 @@ local function buildWindow()
         if total == 0 then popupStatus:SetText(tr("Crée un cadre pour commencer.", "Create a frame to get started.")) end
     end
     openActivation = function()
+        stopFrameCapture()
         popupStatus:SetText("")
         closeHints()
         activationPopup:Show()
@@ -783,6 +1058,7 @@ local function buildWindow()
         if not canEditHints() then return end
         settings()[key] = value
         refreshHints()
+        if globalScope then notify(tr("Les changements s’appliquent immédiatement.", "Changes apply immediately.")) end
         refreshPreview()
     end
     local inherited = check(hintPopup, tr("Remplacer les réglages globaux", "Override global settings"), 16, -77, function(value)
@@ -799,8 +1075,6 @@ local function buildWindow()
             setHint("hint", value)
         else
             draft.hintVisible = value
-            local saved = layout().panels[selected]
-            if saved then saved.hintVisible = value end
             refreshHints()
             refreshPreview()
         end
@@ -855,24 +1129,38 @@ local function buildWindow()
         end
     end
     local function openHints(global)
+        stopFrameCapture()
         globalScope = global
         heading:SetText(global and tr("Apprentissage global", "Global learning settings")
             or tr("Apprentissage du cadre", "Frame learning settings"))
         refreshHints()
         hintPopup:Show()
     end
-    button(config, tr("Onglet d’apprentissage", "Learning tab"), 200, -4, 202, function() openHints(true) end)
-    button(editor, tr("Réglages du cadre…", "Frame settings…"), 18, -102, 190, function() openHints(false) end)
+    button(config, tr("Étiquettes globales", "Global key labels"), 200, -4, 202, function() openHints(true) end)
+    ui.keyLabel = check(ui.appearance, tr("Afficher l’étiquette de touche", "Show key label"), 18, -35, function(value)
+        draft.hintVisible = value
+        refreshPreview()
+    end)
+    ui.updateHint = function() ui.keyLabel:SetChecked(not not addon.HintVisibleForFrame(draft))
+        ui.keyLabel:SetEnabled(not not addon.GlobalHints().hint) end
+    button(ui.appearance, tr("Réglages de l’étiquette…", "Key label settings…"), 312, -35, 245, function() openHints(false) end)
 
-    local barGroup = CreateFrame("Frame", nil, editor)
-    barGroup:SetAllPoints(editor)
-    label(barGroup, tr("Le cadre comprend les barres suivantes :", "This frame includes these bars:"), 18, -167)
+    local barGroup = CreateFrame("Frame", nil, ui.target)
+    barGroup:SetAllPoints(ui.target)
+    ui.barSummary = label(barGroup, "", 18, -84, "GameFontHighlight")
+    ui.barSummary:SetWidth(575)
+    ui.barSummary:SetJustifyH("LEFT")
+    ui.barSummary:SetWordWrap(false)
+    button(barGroup, tr("Sélectionner en jeu", "Select in game"), 414, -125, 200, function()
+        if not editing then setEditing(true) end
+    end)
     label(barGroup, tr("En édition, clique aussi sur les numéros au-dessus des barres.", "In edit mode, you can also click the numbers over the bars."),
-        294, -167, "GameFontHighlightSmall")
+        18, -134, "GameFontHighlightSmall")
     local barChecks, barCaptions = {}, {}
     for id = 1, 15 do
-        barChecks[id], barCaptions[id] = check(barGroup, tostring(id), 18 + (id - 1) * 43, -193, function(value)
+        barChecks[id], barCaptions[id] = check(barGroup, tostring(id), 18 + (id - 1) * 40, -102, function(value)
             addon.BarSelection(draft)[id] = value or nil
+            refresh()
             refreshPreview()
         end)
         barChecks[id]:SetScript("OnEnter", function(self)
@@ -884,37 +1172,16 @@ local function buildWindow()
         barChecks[id]:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
 
-    local linkedHelp = label(editor, "", 18, -173)
-    linkedHelp:SetPoint("RIGHT", editor, "RIGHT", -18, 0)
+    local linkedHelp = label(ui.target, "", 18, -90)
+    linkedHelp:SetWidth(600)
     linkedHelp:SetJustifyH("LEFT")
-    local freeGroup = CreateFrame("Frame", nil, editor)
-    freeGroup:SetAllPoints(editor)
-    label(editor, tr("Fond", "Fill"), 18, -282)
-    label(editor, tr("Bordure", "Border"), 336, -282)
-    local divider = editor:CreateTexture(nil, "ARTWORK")
-    divider:SetPoint("TOPLEFT", 324, -282)
-    divider:SetSize(1, 156)
-    divider:SetColorTexture(0.38, 0.48, 0.58, 0.6)
-    local inputs, captions, positions = {}, {}, {}
-    for index, spec in ipairs(fields) do
-        local key = spec[1]
-        local parent, column
-        if index <= 4 then
-            parent, column = freeGroup, index - 1
-        elseif index == 5 then
-            parent, column = editor, 0
-        else
-            parent, column = editor, (index - 6) % 4
-        end
-        local y = -306
-        if parent == freeGroup then y = -173
-        elseif key == "padding" then y = -402
-        elseif key == "thickness" then y, column = -402, 2
-        elseif key == "depth" or key == "linger" or key == "fade" then y = -486 end
-        local x = 18 + column * 159
-        inputs[key], captions[key] = field(parent, tr(spec[2], spec[3]), x, y, 126, 9)
-        positions[key] = {x = x, y = y}
-    end
+    linkedHelp:SetWordWrap(true)
+    ui.moveFrame = button(ui.target, tr("Déplacer en jeu", "Move in game"), 18, -119, 195, function()
+        if not editing then setEditing(true) end
+    end)
+    local freeGroup = ui.geometry
+    local inputs, specifications = {}, {}
+    for _, spec in ipairs(fields) do specifications[spec[1]] = spec end
 
     local function parseField(raw, spec)
         raw = clean(raw)
@@ -930,25 +1197,56 @@ local function buildWindow()
         end
     end
 
-    local styleControls, syncing = {}, false
-    local function updateControl(key)
-        if styleControls[key] then styleControls[key]() end
+    local function bindNumberOrColor(parent, key, x, y, width, activeStyle, isStyle)
+        local spec = specifications[key]
+        local input, caption = field(parent, tr(spec[2], spec[3]), x, y, width, 9)
+        local function resolveStyle(panel, write)
+            if not isStyle or activeStyle then return panel end
+            return defaultStyle(panel, write)
+        end
+        local control = {input = input, spec = spec, show = function()
+            return not activeStyle or not draft.useDefaultStyle
+        end, activeStyle = activeStyle}
+        inputs[#inputs + 1] = control
+
+        local function updatePreview(value)
+            resolveStyle(draft, true)[key] = value
+            if isStyle then inactive = not activeStyle end
+            if control.refresh then control.refresh() end
+            refreshPreview()
+        end
+        local function set(value)
+            input:SetText(tostring(value * (spec[6] or 1)))
+            updatePreview(value)
+        end
+        input:SetScript("OnTextChanged", function(_, userInput)
+            if not userInput or not draft then return end
+            local value = parseField(input:GetText(), spec)
+            if value == nil then updateHeading(); return end
+            updatePreview(value)
+        end)
+        function control.load()
+            local value = resolveStyle(draft)[key]
+            if spec[6] then value = value * spec[6] end
+            input:SetText(tostring(value))
+            if control.refresh then control.refresh() end
+        end
+        return control, caption, set, updatePreview
     end
 
-    local function setStyle(key, value, text)
-        fieldTarget(key)[key] = value
-        inputs[key]:SetText(text or tostring(value))
-        updateControl(key)
-        refreshPreview()
-    end
-
+    local geometryInputs = {}
     for index = 1, 4 do
         local spec = fields[index]
-        local key = spec[1]
-        local position = positions[key]
-        inputs[key]:SetWidth(98)
+        local key, x = spec[1], 18 + (index - 1) * 159
+        local control, _, set = bindNumberOrColor(freeGroup, key, x + 22, -9, 58)
+        geometryInputs[index] = control.input
+        local function step(delta)
+            set(math.max(spec[4], math.min(spec[5], draft[key] + delta)))
+        end
+        button(freeGroup, "−", x, -24, 24, function() step(-1) end)
+        button(freeGroup, "+", x + 88, -24, 24, function() step(1) end)
         local title = tr(spec[2], spec[3])
-        local copy = menu(freeGroup, position.x + 108, position.y - 15, 40, function(root)
+        local copy = menu(freeGroup, x + 118, -24, 24, function(root)
             local found = false
             for sourceIndex, source in ipairs(layout().panels) do
                 if sourceIndex ~= selected then
@@ -956,9 +1254,7 @@ local function buildWindow()
                     local value = geometry and geometry[key]
                     if value and value >= spec[4] and value <= spec[5] then
                         found = true
-                        root:CreateButton(("%s  ·  %s"):format(source.name, tostring(value)), function()
-                            setStyle(key, value)
-                        end)
+                        root:CreateButton(("%s  ·  %s"):format(source.name, tostring(value)), function() set(value) end)
                     end
                 end
             end
@@ -966,8 +1262,9 @@ local function buildWindow()
                 root:CreateButton(tr("Aucun cadre source disponible", "No source frame available")):SetEnabled(false)
             end
         end)
+        copy:SetSize(24, 24)
         copy:OverrideText(" ")
-        copyIcon(copy, 5, -4)
+        copyIcon(copy, 5, -5)
         copy:HookScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:SetText(tr("Copier la valeur de %s", "Copy the value of %s"):format(title))
@@ -975,126 +1272,6 @@ local function buildWindow()
         end)
         copy:HookScript("OnLeave", function() GameTooltip:Hide() end)
     end
-
-    local function placeInput(key, offset, width)
-        local input, position = inputs[key], positions[key]
-        input:ClearAllPoints()
-        input:SetPoint("TOPLEFT", editor, "TOPLEFT", position.x + offset, position.y - 16)
-        input:SetWidth(width)
-        return position.x, position.y
-    end
-
-    local function hexRGB(hex)
-        return tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255,
-            tonumber(hex:sub(5, 6), 16) / 255
-    end
-
-    for _, key in ipairs({"fill", "border"}) do
-        local x, y = placeInput(key, 5, 89)
-        local swatch = button(editor, "", x + 99, y - 16, 42, function()
-            local target = fieldTarget(key)
-            local original = target[key]
-            local r, g, b = hexRGB(original)
-            local function apply(hex)
-                if draft and fieldTarget(key) == target then setStyle(key, hex) end
-            end
-            ColorPickerFrame:SetupColorPickerAndShow({
-                r = r, g = g, b = b,
-                swatchFunc = function()
-                    local red, green, blue = ColorPickerFrame:GetColorRGB()
-                    apply(("%02X%02X%02X"):format(math.floor(red * 255 + 0.5),
-                        math.floor(green * 255 + 0.5), math.floor(blue * 255 + 0.5)))
-                end,
-                cancelFunc = function() apply(original) end,
-            })
-        end)
-        local color = swatch:CreateTexture(nil, "ARTWORK")
-        color:SetPoint("TOPLEFT", 5, -5)
-        color:SetPoint("BOTTOMRIGHT", -5, 5)
-        styleControls[key] = function()
-            local style = fieldTarget(key)
-            local r, g, b = hexRGB(style[key])
-            color:SetColorTexture(r, g, b, 1)
-            local textures = key == "fill" and addon.fillTextures or addon.borderTextures
-            local solid = textures[style[key .. "Texture"]] == nil
-            if not solid then
-                inputs[key]:ClearFocus()
-                inputs[key]:SetText(style[key])
-            end
-            inputs[key]:SetShown(solid)
-            captions[key]:SetShown(solid)
-            swatch:SetShown(solid)
-        end
-    end
-
-    local function sliderControl(key, maximum, multiplier)
-        local x, y = placeInput(key, 104, 38)
-        local slider = CreateFrame("Slider", nil, editor)
-        slider:SetOrientation("HORIZONTAL")
-        slider:SetSize(89, 20)
-        slider:SetPoint("TOPLEFT", editor, "TOPLEFT", x + 5, y - 17)
-        slider:SetMinMaxValues(0, maximum)
-        slider:SetValueStep(1)
-        slider:SetObeyStepOnDrag(true)
-        slider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
-        local track = slider:CreateTexture(nil, "BACKGROUND")
-        track:SetPoint("LEFT", 3, 0)
-        track:SetPoint("RIGHT", -3, 0)
-        track:SetHeight(4)
-        track:SetColorTexture(0.34, 0.44, 0.54, 1)
-        slider:SetScript("OnValueChanged", function(_, value)
-            if syncing or not draft then return end
-            local step = math.floor(value + 0.5)
-            setStyle(key, step / multiplier, tostring(step))
-        end)
-        styleControls[key] = function()
-            local style = fieldTarget(key)
-            if key == "thickness" then
-                local solid = addon.borderTextures[style.borderTexture] == nil
-                if not solid then
-                    inputs[key]:ClearFocus()
-                    inputs[key]:SetText(tostring(style.thickness))
-                end
-                inputs[key]:SetShown(solid)
-                captions[key]:SetShown(solid)
-                slider:SetShown(solid)
-            end
-            syncing = true
-            slider:SetValue(style[key] * multiplier)
-            syncing = false
-        end
-    end
-
-    sliderControl("fillAlpha", 100, 100)
-    sliderControl("borderAlpha", 100, 100)
-    sliderControl("thickness", 32, 1)
-
-    local levelX, levelY = placeInput("depth", 49, 48)
-    local function stepLevel(delta)
-        setStyle("depth", math.max(0, math.min(32, draft.depth + delta)))
-    end
-    button(editor, "−", levelX + 5, levelY - 16, 34, function() stepLevel(-1) end)
-    button(editor, "+", levelX + 106, levelY - 16, 34, function() stepLevel(1) end)
-
-    local geometryFields = {"x", "y", "width", "height"}
-    for _, spec in ipairs(fields) do
-        local key = spec[1]
-        inputs[key]:SetScript("OnTextChanged", function(input, userInput)
-            if not userInput or not draft then return end
-            local value = parseField(input:GetText(), spec)
-            if value == nil then return end
-            fieldTarget(key)[key] = value
-            updateControl(key)
-            refreshPreview()
-        end)
-    end
-    name:SetScript("OnTextChanged", function(_, userInput)
-        if userInput then
-            local caption = clean(name:GetText())
-            panels:OverrideText(caption ~= "" and caption or draft.name)
-            refreshPreview()
-        end
-    end)
 
     local fillStyles = {
         {"solid", tr("Uni", "Solid")}, {"marble", tr("Marbre", "Marble")},
@@ -1106,81 +1283,211 @@ local function buildWindow()
         {"gold", tr("Dialogue doré", "Gold dialog")}, {"chat", tr("Bulle de discussion", "Chat bubble")},
         {"wood", tr("Bois", "Wood")}, {"tooltip", tr("Infobulle", "Tooltip")},
     }
-    local borderOnTop = check(editor, tr("Par-dessus tout", "Draw on top"), 497, -416, function(value)
-        fieldTarget("borderOnTop").borderOnTop = value
-        refreshPreview()
-    end)
-
-    local function textureMenu(key, styles, x, title)
-        local function current() return fieldTarget(key)[key] or "solid" end
-        label(editor, title, x, -352)
-        local picker = menu(editor, x, -368, 220, function(root)
-            for _, style in ipairs(styles) do
-                radio(root, style[2], style[1], current, function(value)
-                    fieldTarget(key)[key] = value
-                    refresh()
-                    refreshPreview()
-                end)
+    local function hexRGB(hex)
+        return tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255,
+            tonumber(hex:sub(5, 6), 16) / 255
+    end
+    local function styleEditor(parent, activeStyle)
+        local function column(title, x)
+            local panel = CreateFrame("Frame", nil, parent)
+            panel:SetSize(301, 184)
+            panel:SetPoint("TOPLEFT", x, -48)
+            local background = panel:CreateTexture(nil, "BACKGROUND")
+            background:SetAllPoints()
+            background:SetColorTexture(0.12, 0.18, 0.24, 0.8)
+            label(panel, title, 10, -9, "GameFontNormal")
+            return panel
+        end
+        local fill = column(tr("Fond", "Fill"), 16)
+        local border = column(tr("Bordure", "Border"), 333)
+        local colorY, textureY = -79, -33
+        local pickers = {}
+        local function target(write)
+            if activeStyle then return draft end
+            return defaultStyle(draft, write)
+        end
+        local function isSolid(key)
+            local available = key == "fill" and addon.fillTextures or addon.borderTextures
+            return not available[target()[key .. "Texture"]]
+        end
+        local function colorControl(container, key, x)
+            local control, caption, _, apply = bindNumberOrColor(container, key, x, colorY, 89, activeStyle, true)
+            local swatch = button(container, "", x + 99, colorY - 16, 42, function()
+                local owner, original = draft, target()[key]
+                local red, green, blue = hexRGB(original)
+                local function setHex(hex)
+                    if draft ~= owner or (activeStyle and draft.useDefaultStyle) then return end
+                    control.input:SetText(hex)
+                    apply(hex)
+                end
+                ColorPickerFrame:SetupColorPickerAndShow({
+                    r = red, g = green, b = blue,
+                    swatchFunc = function()
+                        local r, g, b = ColorPickerFrame:GetColorRGB()
+                        setHex(("%02X%02X%02X"):format(math.floor(r * 255 + 0.5),
+                            math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5)))
+                    end,
+                    cancelFunc = function() setHex(original) end,
+                })
+            end)
+            local color = swatch:CreateTexture(nil, "ARTWORK")
+            color:SetPoint("TOPLEFT", 5, -5)
+            color:SetPoint("BOTTOMRIGHT", -5, 5)
+            control.refresh = function()
+                local r, g, b = hexRGB(target()[key])
+                color:SetColorTexture(r, g, b, 1)
+                local solid = isSolid(key)
+                control.input:SetShown(solid)
+                caption:SetShown(solid)
+                swatch:SetShown(solid)
+                if not solid then control.input:SetText(target()[key]) end
             end
+            return control.refresh
+        end
+        local function sliderControl(key, parent, x, y, maximum)
+            local control, caption, set = bindNumberOrColor(parent, key, x + 99, y, 38, activeStyle, true)
+            caption:ClearAllPoints()
+            caption:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+            local slider = CreateFrame("Slider", nil, parent)
+            slider:SetOrientation("HORIZONTAL")
+            slider:SetSize(89, 20)
+            slider:SetPoint("TOPLEFT", parent, "TOPLEFT", x + 5, y - 17)
+            slider:SetMinMaxValues(0, maximum)
+            slider:SetValueStep(1)
+            slider:SetObeyStepOnDrag(true)
+            slider:SetThumbTexture([[Interface\Buttons\UI-SliderBar-Button-Horizontal]])
+            local track = slider:CreateTexture(nil, "BACKGROUND")
+            track:SetPoint("LEFT", 3, 0)
+            track:SetPoint("RIGHT", -3, 0)
+            track:SetHeight(4)
+            track:SetColorTexture(0.34, 0.44, 0.54, 1)
+            local syncing
+            slider:SetScript("OnValueChanged", function(_, value)
+                if not syncing and draft then set(math.floor(value + 0.5) / (control.spec[6] or 1)) end
+            end)
+            control.refresh = function()
+                local visible = key ~= "thickness" or isSolid("border")
+                control.input:SetShown(visible)
+                caption:SetShown(visible)
+                slider:SetShown(visible)
+                if not visible then control.input:SetText(tostring(target()[key])) end
+                syncing = true
+                slider:SetValue(target()[key] * (control.spec[6] or 1))
+                syncing = false
+            end
+            return control.refresh
+        end
+        local refreshFill = colorControl(fill, "fill", 10)
+        local refreshBorder = colorControl(border, "border", 10)
+        sliderControl("fillAlpha", fill, 155, colorY, 100)
+        sliderControl("borderAlpha", border, 155, colorY, 100)
+        local refreshThickness = sliderControl("thickness", border, 10, -123, 32)
+        local function textureMenu(container, key, styles, title, refreshColor, refreshSize)
+            local function current() return target()[key] or "solid" end
+            label(container, title, 10, textureY)
+            local picker = menu(container, 10, textureY - 16, 285, function(root)
+                for _, style in ipairs(styles) do
+                    radio(root, style[2], style[1], current, function(value)
+                        target(true)[key] = value
+                        inactive = not activeStyle
+                        refreshColor()
+                        if refreshSize then refreshSize() end
+                        refresh()
+                        refreshPreview()
+                    end)
+                end
+            end)
+            pickers[#pickers + 1] = function()
+                for _, style in ipairs(styles) do
+                    if style[1] == current() then picker:OverrideText(style[2]); return end
+                end
+                picker:OverrideText(styles[1][2])
+            end
+        end
+        textureMenu(fill, "fillTexture", fillStyles, tr("Texture de fond", "Fill texture"), refreshFill)
+        textureMenu(border, "borderTexture", borderStyles, tr("Texture de bordure", "Border texture"), refreshBorder, refreshThickness)
+        local onTop = check(border, tr("Par-dessus tout", "Draw on top"), 157, -136, function(value)
+            target(true).borderOnTop = value
+            inactive = not activeStyle
+            refreshPreview()
         end)
         return function()
-            for _, style in ipairs(styles) do
-                if style[1] == current() then picker:OverrideText(style[2]); return end
-            end
-            picker:OverrideText(styles[1][2])
+            for _, updatePicker in ipairs(pickers) do updatePicker() end
+            onTop:SetChecked(target().borderOnTop ~= false)
         end
     end
-    local refreshFill = textureMenu("fillTexture", fillStyles, 18, tr("Texture de fond", "Fill texture"))
-    local refreshBorder = textureMenu("borderTexture", borderStyles, 336, tr("Texture de bordure", "Border texture"))
+
+    local refreshDefaultStyle = styleEditor(ui.default, false)
+    local activeControls = CreateFrame("Frame", nil, ui.styles)
+    activeControls:SetAllPoints(ui.styles)
+    local refreshActiveStyle = styleEditor(activeControls, true)
+    button(ui.default, tr("Aperçu par défaut", "Preview default"), 18, -8, 194, function()
+        inactive = true
+        refreshPreview()
+    end)
+    button(activeControls, tr("Aperçu activé", "Preview activated"), 18, -8, 194, function()
+        inactive = false
+        refreshPreview()
+    end)
+
+    bindNumberOrColor(ui.appearance, "padding", 18, -60, 126)
+    local _, _, setLevel = bindNumberOrColor(ui.display, "depth", 62, -6, 48)
+    local function stepLevel(delta)
+        setLevel(math.max(0, math.min(32, draft.depth + delta)))
+    end
+    button(ui.display, "−", 23, -22, 34, function() stepLevel(-1) end)
+    button(ui.display, "+", 124, -22, 34, function() stepLevel(1) end)
+    bindNumberOrColor(ui.transition, "linger", 18, -6, 126)
+    bindNumberOrColor(ui.transition, "fade", 177, -6, 126)
+
+    local displayHelp = label(ui.display, tr(
+        "+ fait passer le cadre devant, − le fait reculer quand deux cadres se chevauchent. Le niveau s’applique aux cadres d’une même couche d’affichage.",
+        "+ moves the frame forward, − moves it back when frames overlap. This applies to frames on the same display layer."),
+        181, -9, "GameFontHighlightSmall")
+    displayHelp:SetWidth(441)
+    displayHelp:SetJustifyH("LEFT")
+    displayHelp:SetWordWrap(true)
+
+    local transitionHelp = label(ui.transition, tr(
+        "Après désactivation, la rémanence prolonge le style activé. Le fondu détermine ensuite le temps qu’il met à disparaître.\nPour un cadre avec un style activé distinct.",
+        "After deactivation, hold keeps the active style visible. Fade is how long it then takes to disappear.\nFor frames with a separate activated style."),
+        325, -8, "GameFontHighlightSmall")
+    transitionHelp:SetWidth(300)
+    transitionHelp:SetJustifyH("LEFT")
+    transitionHelp:SetWordWrap(true)
 
     local function loadFields()
-        for _, spec in ipairs(fields) do
-            local value = fieldTarget(spec[1])[spec[1]]
-            if spec[6] then value = value * spec[6] end
-            inputs[spec[1]]:SetText(tostring(value))
-        end
+        for _, control in ipairs(inputs) do control.load() end
     end
 
-    local function switchStyle(showDefault)
-        if showDefault and not draft.inactiveStyle and not draft.useDefaultStyle then
-            draft.inactiveStyle = {}
-            addon.CopyStyle(draft, draft.inactiveStyle)
-            draft.inactiveStyle.fillAlpha = 0
-            draft.inactiveStyle.borderAlpha = 0
-        end
-        inactive = showDefault
-        loadFields()
-        refresh()
-        refreshPreview()
-    end
-
-    local showDefaultTab = tab(editor, tr("Défaut", "Default"), 160, -243, 120, function()
-        switchStyle(true)
-    end)
-    local showActiveTab = tab(editor, tr("Activé", "Activated"), 284, -243, 120, function()
-        switchStyle(false)
-    end)
-    local override = check(editor, tr("Style activé distinct", "Separate activated style"), 430, -243, function(enabled)
+    local override = check(ui.styles, tr("Style activé distinct", "Separate activated style"), 300, -8, function(enabled)
         if enabled and not draft.inactiveStyle then
             draft.inactiveStyle = {}
             addon.CopyStyle(draft, draft.inactiveStyle)
         end
         draft.useDefaultStyle = not enabled
-        switchStyle(not enabled)
+        if enabled then
+            for _, control in ipairs(inputs) do
+                if control.activeStyle then control.load() end
+            end
+        end
+        inactive = not enabled
+        refresh()
+        refreshPreview()
+    end)
+    name:SetScript("OnTextChanged", function(_, userInput)
+        if userInput and draft then
+            draft.name = clean(name:GetText())
+            refreshPreview()
+        end
     end)
 
-    local copyStyle = menu(editor, 330, -545, 207, function(root)
+    local copyStyle = menu(ui.default, 400, -8, 225, function(root)
         for index, source in ipairs(layout().panels) do
             if index ~= selected then
                 root:CreateButton(source.name, function()
-                    local copyToDefault = draft.useDefaultStyle or (not addon.HoldLayer(draft) and not addon.PanelToggle(draft))
-                    local sourceHasActivatedStyle = (addon.HoldLayer(source) or addon.PanelToggle(source)) and not source.useDefaultStyle
-                    if copyToDefault then inactive = true end
-                    local sourceStyle = source
-                    if not sourceHasActivatedStyle or (inactive and not copyToDefault) then
-                        sourceStyle = source.inactiveStyle or source
-                    end
-                    addon.CopyStyle(sourceStyle, fieldTarget("fill"))
+                    inactive = true
+                    addon.CopyStyle(defaultStyle(source), defaultStyle(draft, true))
                     draft.padding = source.padding or 8
                     draft.hintVisible = source.hintVisible
                     draft.hintOverride = source.hintOverride
@@ -1197,7 +1504,20 @@ local function buildWindow()
     copyIcon(copyStyle, -17, -4)
     copyStyle:OverrideText(tr("Copier le style de…", "Copy style from…"))
 
-    local function savePanel()
+    local function invalidField()
+        for _, control in ipairs(inputs) do
+            local spec = control.spec
+            local key = spec[1]
+            local geometry = key == "x" or key == "y" or key == "width" or key == "height"
+            if (not geometry or draft.kind == "free") and control.show()
+                and parseField(control.input:GetText(), spec) == nil then
+                return spec
+            end
+        end
+    end
+
+    local function savePanel(proceed, approvedHold, approvedBinding)
+        local target = draft
         local value = addon.Copy(draft)
         value.name = clean(name:GetText())
         if value.name == "" then
@@ -1209,27 +1529,83 @@ local function buildWindow()
             notify(tr("Sélectionne au moins une barre.", "Select at least one bar."))
             return
         end
-        for index, spec in ipairs(fields) do
-            local key = spec[1]
-            if index > 5 or (index <= 4 and value.kind == "free") or (index == 5 and value.kind ~= "free") then
-                local parsed = parseField(inputs[key]:GetText(), spec)
-                if not parsed then
-                    notify(tr("Valeur invalide pour ", "Invalid value for ") .. tr(spec[2], spec[3]))
-                    return
+        local invalid = invalidField()
+        if invalid then
+            notify(tr("Valeur invalide pour ", "Invalid value for ") .. tr(invalid[2], invalid[3]))
+            return
+        end
+        local previous = layout().panels[selected]
+        local hold = addon.HoldLayer(value)
+        local conflicts, names = {}, {}
+        if hold and hold ~= "unmodified" and (not previous or hold ~= addon.HoldLayer(previous)) then
+            for index, panel in ipairs(layout().panels) do
+                if index ~= selected and addon.HoldLayer(panel) == hold then
+                    conflicts[#conflicts + 1] = panel
+                    names[#names + 1] = panel.name
                 end
-                fieldTarget(key, value)[key] = parsed
             end
+        end
+        if #conflicts > 0 and not sameSettings(conflicts, approvedHold) then
+            confirm(tr("%s (%s) est utilisé par « %s ». Réserver ce déclencheur à « %s » ?",
+                "%s (%s) is used by “%s”. Assign this trigger only to “%s”?")
+                :format(addon.LayerLabel(hold), modeLabels.hold, table.concat(names, ", "), value.name),
+                function(dialog)
+                    if dialog then dialog:Hide() end
+                    if draft == target then savePanel(proceed, conflicts, approvedBinding) end
+                end)
+            return
+        end
+        local oldToggle, toggle = previous and addon.PanelToggle(previous), addon.PanelToggle(value)
+        local key = pendingToggleKey
+        if toggle and oldToggle ~= toggle and not key then
+            notify(tr("Assigne un raccourci à la bascule.", "Assign a shortcut to the toggle."))
+            return
+        end
+        if toggle and key ~= nil then
+            local ok, reason, owner = addon.AssignPanelToggleKey(value, toggle, key or nil, approvedBinding)
+            if not ok then
+                if reason == "occupied" then
+                    confirm(tr("%s est affecté à « %s ». Réattribuer cette touche à « %s » ?",
+                        "%s is assigned to “%s”. Reassign this key to “%s”?")
+                        :format(GetBindingText and GetBindingText(key) or key, addon.ShortcutActionLabel(owner), value.name),
+                        function()
+                            if draft == target then savePanel(proceed, approvedHold, owner) end
+                        end)
+                elseif reason == "temporary" then
+                    notify(tr("Touche temporairement utilisée par %s.", "Key temporarily used by %s.")
+                        :format(addon.ShortcutActionLabel(owner)))
+                else
+                    notify(reason == "combat"
+                        and tr("Modifie les raccourcis hors combat.", "Change shortcuts out of combat.")
+                        or tr("Cette touche ne peut pas être assignée.", "This key cannot be assigned."))
+                end
+                return
+            end
+        elseif not toggle and type(oldToggle) == "number" then
+            if not addon.AssignPanelToggleKey(previous, oldToggle, nil) then
+                notify(tr("Modifie les raccourcis hors combat.", "Change shortcuts out of combat."))
+                return
+            end
+        end
+        for _, panel in ipairs(conflicts) do
+            panel.activationMode, panel.layer = "none", "never"
+            if panel.toggleId and not panel.toggleModifier then panel.toggleModifier = hold end
         end
         selected = selected or #layout().panels + 1
         layout().panels[selected] = value
         addon.SyncSwitch()
+        addon.RememberFrameToggleKeys()
         pick(selected, nil, inactive)
         addon.Refresh()
         notify(tr("Cadre enregistré.", "Frame saved."))
+        if proceed then proceed() end
     end
 
-    button(editor, tr("Enregistrer le cadre", "Save frame"), 18, -545, 158, savePanel)
-    local remove = button(editor, tr("Supprimer", "Delete"), 184, -545, 105, function()
+    button(ui.footer, tr("Enregistrer le cadre", "Save frame"), 18, -5, 195, function()
+        stopFrameCapture()
+        savePanel()
+    end)
+    local remove = button(ui.footer, tr("Supprimer", "Delete"), 225, -5, 115, function()
         local index = selected
         confirm(tr("Supprimer ce cadre ?", "Delete this frame?"), function()
             table.remove(layout().panels, index)
@@ -1241,31 +1617,49 @@ local function buildWindow()
 
     refresh = function()
         local panel = layout().panels[selected]
-        local caption = draft and clean(name:GetText())
-        panels:OverrideText(draft and (caption ~= "" and caption or draft.name) or tr("Sélectionner un cadre", "Select a frame"))
-        frameScope:SetShown(draft ~= nil)
-        editor:SetShown(draft ~= nil)
+        panels:OverrideText(tr("Changer de cadre", "Change frame"))
+        panels:SetEnabled(#layout().panels > 0)
+        ui.form:SetShown(draft ~= nil)
+        ui.footer:SetShown(draft ~= nil)
+        ui.empty:SetShown(draft == nil)
         if not draft then return end
-        refreshFill()
-        refreshBorder()
-        borderOnTop:SetChecked(fieldTarget("borderOnTop").borderOnTop ~= false)
-        showDefaultTab(inactive or draft.useDefaultStyle, true)
-        showActiveTab(not inactive and not draft.useDefaultStyle, not draft.useDefaultStyle)
+        refreshDefaultStyle()
+        refreshActiveStyle()
+        activeControls:SetShown(not draft.useDefaultStyle)
+        ui.stylesRow.height = draft.useDefaultStyle and 70 or 278
         override:SetChecked(not draft.useDefaultStyle)
         copyStyle:SetEnabled(#layout().panels > (selected and 1 or 0))
-        for key in pairs(styleControls) do updateControl(key) end
         kind:OverrideText(draft.kind == "chat" and chatLabel(draft.chatId) or kinds[draft.kind])
-        local hold, key = addon.HoldLayer(draft), addon.PanelToggleKey(draft)
-        local holdText = hold and addon.LayerLabel(hold)
-        local keyText = key and (GetBindingText and GetBindingText(key) or key)
-        layer:SetText(holdText and keyText and (holdText .. " / " .. keyText) or holdText or keyText or modeLabels.none)
+        local hold, toggle = addon.HoldLayer(draft), addon.PanelToggle(draft)
+        local key = pendingToggleKey
+        if key == nil then key = addon.PanelToggleKey(draft) end
+        ui.hold:OverrideText(hold and addon.LayerLabel(hold) or (toggle and modeLabels.none
+            or tr("Toujours visible", "Always visible")))
+        ui.toggle:OverrideText(toggle and addon.LayerLabel(addon.ToggleModifier(draft)) or modeLabels.none)
+        ui.toggleKey:SetEnabled(toggle ~= nil)
+        if not ui.capturing then
+            ui.toggleKey:SetText(key and (GetBindingText and GetBindingText(key) or key)
+                or (toggle and tr("Assigner…", "Assign…") or "—"))
+        end
+        ui.activationHelp:SetText(toggle and tr(
+            "Bascule : la couche reste active après l’appui. Les raccourcis sont appliqués dans WoW à l’enregistrement.",
+            "Toggle: the layer stays active after pressing the shortcut. WoW keybindings are applied when you save.")
+            or hold and tr("Touche maintenue : le cadre s’allume pendant l’appui.",
+                "Hold key: the frame highlights while the key is held.")
+            or tr("Toujours visible : le cadre s’affiche sans déclencheur.",
+                "Always visible: the frame is shown without a trigger."))
         local selectedBars = addon.BarSelection(draft)
         barGroup:SetShown(selectedBars ~= nil)
-        freeGroup:SetShown(draft.kind == "free")
-        linkedHelp:SetShown(not selectedBars and draft.kind ~= "free")
-        linkedHelp:SetText(draft.kind == "chat"
-            and tr("Le cadre suit la fenêtre de tchat sélectionnée.", "The frame follows the selected chat window.")
+        ui.geometryRow.block:SetShown(draft.kind == "free")
+        ui.moveFrame:SetShown(draft.kind == "free")
+        linkedHelp:SetShown(not selectedBars)
+        linkedHelp:SetText(draft.kind == "free"
+            and tr("En édition, glisse le cadre pour le déplacer et sa poignée pour le redimensionner.",
+                "In edit mode, drag the frame to move it and its handle to resize it.")
+            or draft.kind == "chat" and tr("Le cadre suit la fenêtre de tchat sélectionnée.",
+                "The frame follows the selected chat window.")
             or tr("Le cadre suit cet élément lorsqu’il est visible.", "The frame follows this element when it is visible."))
+        ui.reflow()
         for id, item in ipairs(barChecks) do
             item:SetShown(id <= (addon.barCounts[draft.kind] or 0))
             item:SetChecked(selectedBars and selectedBars[id])
@@ -1273,11 +1667,22 @@ local function buildWindow()
             caption:SetText((addon.BarLabel(draft.kind, id)))
             item:SetHitRectInsets(0, -caption:GetStringWidth(), 0, 0)
         end
+        if selectedBars then
+            local names = {}
+            for id = 1, addon.barCounts[draft.kind] do
+                if selectedBars[id] then names[#names + 1] = (addon.BarLabel(draft.kind, id)) end
+            end
+            ui.barSummary:SetText(#names > 0 and tr("Barres sélectionnées : %s", "Selected bars: %s")
+                :format(table.concat(names, ", ")) or tr("Sélectionne au moins une barre.", "Select at least one bar."))
+        end
         remove:SetEnabled(panel ~= nil)
     end
 
     pick = function(index, initial, keepDefaultTab)
+        stopFrameCapture()
         local panel = layout().panels[index]
+        if selected ~= index then ui.form:SetVerticalScroll(0) end
+        pendingToggleKey = nil
         selected = panel and index or nil
         draft = initial or (panel and addon.Copy(panel))
         if keepDefaultTab ~= nil then
@@ -1296,14 +1701,80 @@ local function buildWindow()
         refreshPreview()
     end
 
+    local function hasPendingChanges()
+        if not draft then return false end
+        if not selected or pendingToggleKey ~= nil or not sameSettings(draft, layout().panels[selected]) then return true end
+        return invalidField() ~= nil
+    end
+
+    updateHeading = function()
+        local saved = layout().panels[selected]
+        currentName:SetText(draft and (draft.name ~= "" and draft.name or tr("Cadre sans nom", "Unnamed frame"))
+            or tr("Aucun cadre", "No frame"))
+        local details = ""
+        if draft then
+            local hold, toggle = addon.HoldLayer(draft), addon.PanelToggle(draft)
+            local mode = hold and tr("Touche maintenue", "Hold key") or tr("Toujours visible", "Always visible")
+            if toggle then
+                local toggleText = tr("Bascule", "Toggle")
+                mode = hold and (mode .. " + " .. toggleText) or toggleText
+            end
+            details = (draft.kind == "chat" and chatLabel(draft.chatId) or kinds[draft.kind] or "") .. "  ·  " .. mode
+        end
+        currentDetails:SetText(details)
+        draftStatus:SetText(draft and (not saved and tr("Nouveau cadre non enregistré", "Unsaved new frame")
+            or hasPendingChanges() and tr("Modifications non enregistrées", "Unsaved changes")) or "")
+    end
+
+    leaveDraft = function(proceed)
+        stopFrameCapture()
+        if not hasPendingChanges() then proceed(); return end
+        StaticPopupDialogs.KEYLAYERS_UNSAVED_FRAME = {
+            text = "%s", button1 = tr("Enregistrer", "Save"), button2 = CANCEL, button3 = tr("Ignorer", "Discard"),
+            timeout = 0, whileDead = true, hideOnEscape = true,
+            OnAccept = function(_, action) action.save() end,
+            OnAlt = function(_, action) action.discard() end,
+        }
+        local saved = layout().panels[selected]
+        local title = saved and saved.name or (draft.name ~= "" and draft.name or tr("Nouveau cadre", "New frame"))
+        local target = draft
+        StaticPopup_Show("KEYLAYERS_UNSAVED_FRAME",
+            tr("Enregistrer les modifications de « %s » ?", "Save changes to “%s”?"):format(title), nil, {
+                save = function() if draft == target then savePanel(proceed) end end,
+                discard = function()
+                    if draft ~= target then return end
+                    pick(selected)
+                    proceed()
+                end,
+            })
+    end
+
+    requestPick = function(index)
+        if index == (selected or 0) then return draft end
+        leaveDraft(function() pick(index) end)
+        if selected == index then return draft end
+    end
+    local function requestClose()
+        leaveDraft(function() window:Hide() end)
+    end
+    close:SetScript("OnClick", requestClose)
+    local escape = CreateFrame("Frame", "KeyLayersEditorEscape", window)
+    escape:SetScript("OnHide", function(self)
+        if window:IsShown() then
+            requestClose()
+            if window:IsShown() then self:Show() end
+        end
+    end)
+    table.insert(UISpecialFrames, escape:GetName())
+
     local function applyGeometry(x, y, width, height)
         local values = {x, y, width, height}
-        for index, key in ipairs(geometryFields) do
+        for index, input in ipairs(geometryInputs) do
             local spec = fields[index]
             local value = math.floor(values[index] + 0.5)
             value = math.max(spec[4], math.min(spec[5], value))
-            draft[key] = value
-            inputs[key]:SetText(tostring(value))
+            draft[spec[1]] = value
+            input:SetText(tostring(value))
         end
         refreshPreview()
     end
@@ -1328,7 +1799,7 @@ local function buildWindow()
                 name = function() return clean(name:GetText()) end,
                 geometry = applyGeometry,
                 toggleBar = function(kind, id)
-                    if not draft then pick(nil, addon.NewPanel(tr("Nouveau cadre", "New frame"))) end
+                    if not draft or not addon.barCounts[draft.kind] then return end
                     draft.kind = kind
                     local selectedBars = addon.BarSelection(draft)
                     selectedBars[id] = not selectedBars[id] or nil
@@ -1336,15 +1807,7 @@ local function buildWindow()
                     refreshPreview()
                 end,
                 select = function(index)
-                    if index ~= (selected or 0) then pick(index) end
-                    notify(draft and draft.kind == "bars"
-                        and tr("Déplace les barres dans Bartender4 pour ajuster ce cadre.",
-                            "Move the bars in Bartender4 to adjust this frame.")
-                        or draft and draft.kind ~= "free"
-                            and tr("Le cadre suit sa cible. Déplace la cible pour ajuster le cadre.",
-                                "This frame follows its target. Move the target to adjust the frame.")
-                        or tr("Glisse le cadre ou sa poignée, puis enregistre.", "Drag the frame or its handle, then save."))
-                    return draft
+                    return requestPick(index)
                 end,
             })
             notify(tr("Clique sur un cadre pour afficher ses réglages.", "Click a frame to show its settings."))
@@ -1357,9 +1820,10 @@ local function buildWindow()
 
     window:RegisterEvent("PLAYER_REGEN_DISABLED")
     window:SetScript("OnEvent", function()
+        stopFrameCapture()
         cancelShortcutCapture()
         if editing then setEditing(false) end
-        if assignment:IsShown() then selectTab(config) end
+        if assignment:IsShown() then selectTabNow(config) end
     end)
 
     local profileName = field(profiles, tr("Nom du profil", "Profile name"), 18, -13, 242)
@@ -1429,25 +1893,30 @@ local function buildWindow()
     end)
     refreshProfiles()
     pick(1)
-    window:SetScript("OnShow", refreshPreview)
+    window:SetScript("OnShow", function()
+        escape:Show()
+        refreshPreview()
+    end)
     window:SetScript("OnHide", function()
-        if assignment:IsShown() then selectTab(config) end
+        escape:Hide()
+        stopFrameCapture()
+        if assignment:IsShown() then selectTabNow(config) end
         closeHints()
         closeActivation()
         if editing then setEditing(false) end
         addon.SetDraftPreview(nil, nil)
     end)
-    return window
+    return window, requestClose
 end
 
 function addon.InstallOptions()
-    local window
+    local window, requestClose
     local function open()
-        if not window then window = buildWindow()
+        if not window then window, requestClose = buildWindow()
         else window:Show() end
     end
     local function toggle()
-        if window and window:IsShown() then window:Hide()
+        if window and window:IsShown() then requestClose()
         else open() end
     end
     SLASH_BARTENDERGLOW1 = "/keylayers"
@@ -1461,11 +1930,26 @@ function addon.InstallOptions()
         end
     end
     local categoryPanel = CreateFrame("Frame")
-    categoryPanel.name = addon.title
+    categoryPanel.name = "KeyLayers"
     label(categoryPanel, addon.title .. "  v" .. addon.version, 16, -16, "GameFontNormalLarge")
-    button(categoryPanel, tr("Ouvrir KeyLayers", "Open KeyLayers"), 16, -49, 165, open)
+    button(categoryPanel, tr("Ouvrir l’éditeur de cadres", "Open frame editor"), 16, -49, 234, function()
+        open()
+        if SettingsPanel and SettingsPanel:IsShown() then
+            if HideUIPanel then HideUIPanel(SettingsPanel) else SettingsPanel:Hide() end
+        elseif InterfaceOptionsFrame and InterfaceOptionsFrame:IsShown() then
+            InterfaceOptionsFrame:Hide()
+        end
+    end)
+    local minimapToggle = check(categoryPanel, tr("Afficher l’icône de minimap", "Show minimap icon"),
+        16, -88, function(value)
+            minimapSettings(KeyLayersCharLayout).hide = not value or nil
+            if addon.PositionMinimapIcon then addon.PositionMinimapIcon() end
+        end)
+    categoryPanel:SetScript("OnShow", function()
+        minimapToggle:SetChecked(not minimapSettings(KeyLayersCharLayout).hide)
+    end)
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
-        Settings.RegisterAddOnCategory(Settings.RegisterCanvasLayoutCategory(categoryPanel, addon.title))
+        Settings.RegisterAddOnCategory(Settings.RegisterCanvasLayoutCategory(categoryPanel, "KeyLayers"))
     elseif InterfaceOptions_AddCategory then
         InterfaceOptions_AddCategory(categoryPanel)
     end

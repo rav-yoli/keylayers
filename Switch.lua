@@ -113,9 +113,16 @@ function addon.PanelToggle(panel)
     return panel.toggleId or panel.toggleLayer or (addon.ActivationMode(panel) == "latch" and panel.layer) or nil
 end
 
-function addon.PanelKeyLayer(panel)
+function addon.ToggleModifier(panel)
     local toggle = addon.PanelToggle(panel)
-    return addon.HoldLayer(panel) or (type(toggle) == "string" and toggle) or (toggle and "base" or nil)
+    if type(toggle) == "string" then return toggle end
+    return panel.toggleModifier or addon.HoldLayer(panel) or "base"
+end
+
+function addon.PanelKeyLayer(panel, toggled)
+    local toggle = addon.PanelToggle(panel)
+    if toggle and toggled then return addon.ToggleModifier(panel) end
+    return addon.HoldLayer(panel) or (toggle and addon.ToggleModifier(panel) or nil)
 end
 
 local function frameToggleBinding(id)
@@ -426,7 +433,7 @@ function addon.SyncSwitch(reset)
         local toggle = addon.PanelToggle(panel)
         local id = type(toggle) == "number" and toggle or layerMasks[toggle]
         if id and id > 0 and routes[id] == nil then
-            local layer = type(toggle) == "string" and toggle or addon.HoldLayer(panel)
+            local layer = addon.ToggleModifier(panel)
             local route = layerMasks[layer] or 0
             routes[id] = route
             ids[#ids + 1] = id

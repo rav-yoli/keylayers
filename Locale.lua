@@ -4,6 +4,59 @@ local columns = {deDE = 2, esES = 3, esMX = 3, zhCN = 4, zhTW = 5}
 local column = columns[locale]
 local strings = {}
 local translations = {
+    {"Hover over a frame in the Change frame menu to preview its outline.","Zeige im Menü „Rahmen wechseln“ auf einen Rahmen, um seinen Umriss zu sehen.","Pasa el cursor sobre un marco en el menú Cambiar de marco para ver su contorno.","在更换框体菜单中，将鼠标悬停在框体上即可预览其轮廓。","在切換框體選單中，將滑鼠停在框體上即可預覽其外框。"},
+    {"Frames and key labels stay visible outside the world map. Overlapping artwork draws beneath the map, including with OpenMap.","Rahmen und Tastenbeschriftungen bleiben außerhalb der Weltkarte sichtbar. Überlappende Elemente liegen unter der Karte, auch mit OpenMap.","Los marcos y las etiquetas de teclas siguen visibles fuera del mapa del mundo. Los elementos superpuestos quedan debajo del mapa, también con OpenMap.","框体和按键标签在世界地图外仍然可见。与地图重叠的部分绘制在地图下方，也支持 OpenMap。","框體和按鍵標籤在世界地圖外仍然可見。與地圖重疊的部分繪製在地圖下方，也支援 OpenMap。"},
+    {"+ moves the frame forward, − moves it back when frames overlap. This applies to frames on the same display layer.","Bei überlappenden Rahmen rückt + den Rahmen nach vorne und − nach hinten. Das gilt für Rahmen auf derselben Anzeigeebene.","Si se solapan, + adelanta el marco y − lo retrasa. Se aplica a los marcos de la misma capa de visualización.","框体重叠时，+ 将框体前移，− 将其后移。适用于同一显示层的框体。","框體重疊時，+ 將框體往前移，− 將其往後移。適用於同一顯示層的框體。"},
+    {"After deactivation, hold keeps the active style visible. Fade is how long it then takes to disappear.\nFor frames with a separate activated style.","Nach dem Deaktivieren bleibt der aktive Stil für die Haltezeit sichtbar. Die Ausblendzeit bestimmt, wie lange er danach zum Verschwinden braucht.\nFür Rahmen mit eigenem aktivem Stil.","Al desactivar el marco, la persistencia mantiene visible el estilo activo. El fundido indica cuánto tarda luego en desaparecer.\nPara marcos con un estilo activo distinto.","停用后，保留时间决定激活样式继续显示多久，淡出时间决定它随后多久消失。\n适用于使用独立激活样式的框体。","停用後，保留時間決定啟用樣式繼續顯示多久，淡出時間決定它隨後多久消失。\n適用於使用獨立啟用樣式的框體。"},
+    {"Added inline help for transition timing and display level.","Hinweise zu Übergangszeiten und Anzeigeebene stehen direkt neben den Einstellungen.","Se añadió ayuda junto a los controles de transición y nivel de visualización.","过渡时间和显示层级旁新增说明。","過渡時間與顯示層級旁新增說明。"},
+    {"Borders remain continuous around nested sections.","Rahmen um verschachtelte Abschnitte bleiben durchgehend.","Los bordes de las secciones anidadas son continuos.","嵌套区域的边框保持连续。","巢狀區段的邊框保持連續。"},
+    {"Collapsible sections have a subtle border around the header and its contents.","Aufklappbare Abschnitte haben einen dezenten Rahmen um Kopfzeile und Inhalt.","Las secciones desplegables tienen un borde discreto alrededor del encabezado y su contenido.","可折叠区域的标题和内容由细边框围住。","可摺疊區段的標題和內容由細邊框圍住。"},
+    {"The editor scrolls in smaller steps, and an animated dashed outline marks the selected frame.","Der Editor scrollt in kleineren Schritten. Eine animierte gestrichelte Linie markiert den ausgewählten Rahmen.","El editor se desplaza en pasos más cortos y un contorno animado de guiones marca el marco seleccionado.","编辑器滚动步长更小，并用动态虚线标记选中的框体。","編輯器捲動步幅更小，並以動態虛線標示選取的框體。"},
+    {"Transition","Übergang","Transición","过渡","過渡"},
+    {"Display level","Anzeigeebene","Nivel de visualización","显示层级","顯示層級"},
+    {"Both styles are grouped under Appearance. Transition and display level have separate sections.","Beide Stile stehen unter Aussehen. Übergang und Anzeigeebene haben eigene Abschnitte.","Ambos estilos están en Apariencia. La transición y el nivel de visualización tienen secciones separadas.","两种样式均归入外观。过渡与显示层级各有独立区域。","兩種樣式皆歸入外觀。過渡與顯示層級各有獨立區段。"},
+    {"Collapsible sections use chevrons. The default and activated styles now share the same Fill and Border layout.","Ein- und ausklappbare Abschnitte haben Pfeile. Standardstil und aktiver Stil verwenden dieselbe Aufteilung für Füllung und Rand.","Las secciones desplegables tienen flechas. Los estilos predeterminado y activo comparten la misma distribución de fondo y borde.","可折叠区域使用箭头。默认和激活样式现在采用同样的填充与边框布局。","可摺疊區段使用箭頭。預設與啟用樣式現在採用相同的填滿與邊框配置。"},
+    {"Default style","Standardstil","Estilo predeterminado","默认样式","預設樣式"},
+    {"Preview activated","Aktiven Stil ansehen","Previsualizar estilo activo","预览激活样式","預覽啟用樣式"},
+    {"Preview default","Standardstil ansehen","Previsualizar estilo predeterminado","预览默认样式","預覽預設樣式"},
+    {"Adjust position and size one unit at a time, edit the default and activated styles separately, and keep Save visible while scrolling.","Position und Größe lassen sich schrittweise ändern. Standardstil und aktiver Stil haben eigene Felder. Speichern bleibt beim Scrollen sichtbar.","Ajusta la posición y el tamaño de uno en uno, edita ambos estilos por separado y guarda sin salir del área visible.","位置和尺寸可逐步微调。默认和激活样式可分别编辑，滚动时仍可保存。","位置與尺寸可逐步微調。預設與啟用樣式可分別編輯，捲動時仍可儲存。"},
+    {"Global triggers","Globale Auslöser","Activadores globales","全局触发器","全域觸發器"},
+    {"Highlight action bars","Aktionsleisten hervorheben","Resaltar barras de acción","高亮动作条","醒目顯示快捷列"},
+    {"Decorate a UI element","Oberflächenelement gestalten","Decorar un elemento de la interfaz","装饰界面元素","裝飾介面元素"},
+    {"What should the frame surround?","Was soll der Rahmen umgeben?","¿Qué quieres enmarcar?","要框住什么？","要框住什麼？"},
+    {"Position and size","Position und Größe","Posición y tamaño","位置和尺寸","位置與尺寸"},
+    {"When should it appear?","Wann soll er erscheinen?","¿Cuándo debe mostrarse?","何时显示？","何時顯示？"},
+    {"What should it look like?","Wie soll er aussehen?","¿Qué aspecto debe tener?","外观如何？","外觀如何？"},
+    {"Textures and thickness","Texturen und Randstärke","Texturas y grosor","材质和边框粗细","材質與邊框粗細"},
+    {"Activated style","Aktiver Stil","Estilo activo","激活样式","啟用樣式"},
+    {"Rename","Umbenennen","Cambiar nombre","重命名","重新命名"},
+    {"Hold key","Haltetaste","Tecla mantenida","按住按键","按住按鍵"},
+    {"Layer to activate","Zu aktivierende Ebene","Capa que se activa","要激活的层","要啟用的層"},
+    {"Toggle shortcut","Umschaltkürzel","Atajo de alternancia","切换快捷键","切換快捷鍵"},
+    {"Always visible","Immer sichtbar","Siempre visible","始终可见","一律可見"},
+    {"Press a key or Escape to cancel.","Drücke eine Taste oder Esc zum Abbrechen.","Pulsa una tecla o Esc para cancelar.","请按键，或按 Esc 取消。","請按鍵，或按 Esc 取消。"},
+    {"Changes apply immediately.","Änderungen gelten sofort.","Los cambios se aplican al instante.","更改立即生效。","變更立即生效。"},
+    {"Global key labels","Globale Tastenbeschriftung","Etiquetas globales de teclas","全局按键标签","全域按鍵標籤"},
+    {"Show key label","Tastenkürzel anzeigen","Mostrar etiqueta de tecla","显示按键标签","顯示按鍵標籤"},
+    {"Key label settings…","Tastenbeschriftung …","Opciones de la etiqueta…","按键标签设置…","按鍵標籤設定…"},
+    {"Select in game","Im Spiel auswählen","Seleccionar en el juego","在游戏中选择","在遊戲中選取"},
+    {"Move in game","Im Spiel verschieben","Mover en el juego","在游戏中移动","在遊戲中移動"},
+    {"Assign a shortcut to the toggle.","Weise der Umschaltung ein Tastenkürzel zu.","Asigna un atajo a la alternancia.","请为切换操作分配快捷键。","請為切換操作指定快捷鍵。"},
+    {"Change frame","Rahmen wechseln","Cambiar de marco","更换框体","切換框體"},
+    {"Toggle: the layer stays active after pressing the shortcut. WoW keybindings are applied when you save.","Umschalten: Die Ebene bleibt nach dem Tastendruck aktiv. WoW-Tastenkürzel werden beim Speichern übernommen.","Alternancia: la capa sigue activa tras pulsar el atajo. Los atajos de WoW se aplican al guardar.","切换：按下快捷键后该层保持激活。保存时应用魔兽世界快捷键。","切換：按下快捷鍵後該層保持啟用。儲存時套用魔獸世界快捷鍵。"},
+    {"Hold key: the frame highlights while the key is held.","Halten: Der Rahmen leuchtet, solange du die Taste gedrückt hältst.","Mantener: el marco se resalta mientras mantienes pulsada la tecla.","按住：按住按键时高亮框体。","按住：按住按鍵時醒目顯示框體。"},
+    {"Always visible: the frame is shown without a trigger.","Immer sichtbar: Der Rahmen erscheint ohne Auslöser.","Siempre visible: el marco se muestra sin activador.","始终可见：无需触发即可显示框体。","一律可見：無須觸發即可顯示框體。"},
+    {"In edit mode, drag the frame to move it and its handle to resize it.","Ziehe im Bearbeitungsmodus den Rahmen zum Verschieben oder seinen Griff zum Skalieren.","En edición, arrastra el marco para moverlo o su tirador para cambiar el tamaño.","在编辑模式下拖动框体可移动，拖动手柄可调整大小。","在編輯模式下拖曳框體可移動，拖曳控制點可調整大小。"},
+    {"Selected bars: %s","Ausgewählte Leisten: %s","Barras seleccionadas: %s","已选择的动作条：%s","已選取的快捷列：%s"},
+    {"Unnamed frame","Unbenannter Rahmen","Marco sin nombre","未命名框体","未命名框體"},
+    {"No frame","Kein Rahmen","Ningún marco","没有框体","沒有框體"},
+    {"Unsaved new frame","Neuer, ungespeicherter Rahmen","Marco nuevo sin guardar","新框体尚未保存","新框體尚未儲存"},
+    {"Unsaved changes","Ungespeicherte Änderungen","Cambios sin guardar","未保存的更改","未儲存的變更"},
+    {"Discard","Verwerfen","Descartar","放弃","捨棄"},
+    {"Save changes to “%s”?","Änderungen an „%s“ speichern?","¿Guardar los cambios de «%s»?","要保存对“%s”的更改吗？","要儲存對「%s」的變更嗎？"},
+    {"Open frame editor","Rahmeneditor öffnen","Abrir el editor de marcos","打开框体编辑器","開啟框體編輯器"},
+    {"Show minimap icon","Minikartensymbol anzeigen","Mostrar icono del minimapa","显示小地图图标","顯示小地圖圖示"},
+    {"The editor keeps the selected frame and Save button in view. Preview changes before saving and review unsaved edits when leaving a frame.","Der Editor zeigt den gewählten Rahmen und die Schaltfläche zum Speichern dauerhaft an. Sieh eine Vorschau und entscheide beim Wechsel über ungespeicherte Änderungen.","El editor mantiene visibles el marco seleccionado y el botón Guardar. Previsualiza los cambios y decide qué hacer con ellos al salir.","编辑器始终显示选中的框体和保存按钮。保存前可预览，离开框体时可处理未保存的更改。","編輯器一律顯示選取的框體和儲存按鈕。儲存前可預覽，離開框體時可處理未儲存的變更。"},
     {"X","X","X","X","X"},
     {"Y","Y","Y","Y","Y"},
     {"Base","Basis","Base","基础","基礎"},
@@ -241,19 +294,19 @@ function addon.Translate(fr, en)
 end
 
 addon.releaseHistory = {
-    {"1.1.14b", addon.Translate(
-        "Les cadres et les libellés de raccourcis KeyLayers se masquent pendant l’ouverture de la carte du monde, y compris avec OpenMap.",
-        "KeyLayers frames and key labels hide while the world map is open, including when using OpenMap.")},
-    {"1.1.13b", addon.Translate(
-        "Le tchat Glass est disponible comme type de cadre lié. Il suit la fenêtre principale de Glass Forever quand elle est déplacée ou redimensionnée.",
-        "Glass chat is available as a linked frame type. It follows the main Glass Forever chat window as it moves or resizes.")},
-    {"1.1.12b", addon.Translate(
-        "Quand LibDBIcon gère le bouton de mini-carte, KeyLayers utilise l’icône sans anneau doré.",
-        "The KeyLayers minimap icon uses rimless artwork when managed by LibDBIcon.")},
-    {"1.1.11b", addon.Translate(
-        "SexyMap peut gérer le bouton de mini-carte de KeyLayers dans ses réglages de boutons d’addons.",
-        "SexyMap can manage the KeyLayers minimap button in its Addon buttons settings.")},
-    {"1.1.10b", addon.Translate(
-        "ProfileSync peut copier ta disposition KeyLayers d’un personnage à l’autre, avec ses cadres, ses déclencheurs et ses styles.",
-        "ProfileSync can copy your KeyLayers layout between characters, including frames, triggers, and styles.")},
+    {"1.1.24b", addon.Translate(
+        "Survole un cadre dans le menu Changer de cadre pour voir son contour.",
+        "Hover over a frame in the Change frame menu to preview its outline.")},
+    {"1.1.23b", addon.Translate(
+        "Les cadres et les étiquettes de touche restent visibles autour de la carte du monde. Les éléments qui la chevauchent passent dessous, y compris avec OpenMap.",
+        "Frames and key labels stay visible outside the world map. Overlapping artwork draws beneath the map, including with OpenMap.")},
+    {"1.1.22b", addon.Translate(
+        "Une aide explique les durées de transition et le niveau d’affichage à côté des réglages.",
+        "Added inline help for transition timing and display level.")},
+    {"1.1.21b", addon.Translate(
+        "Les contours des sections imbriquées restent continus.",
+        "Borders remain continuous around nested sections.")},
+    {"1.1.20b", addon.Translate(
+        "Un filet discret encadre l’en-tête et le contenu de chaque section repliable.",
+        "Collapsible sections have a subtle border around the header and its contents.")},
 }

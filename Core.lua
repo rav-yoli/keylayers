@@ -1,13 +1,14 @@
 local addonName, addon = ...
 addon.title = "KeyLayers by Rav Yoli"
 local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.14b"
+addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.24b"
 -- ProfileSync scans globals before our ADDON_LOADED handler and recognizes
 -- character data by name. Keep this a plain, character-scoped saved table.
 local emptyCharacterLayout = {panels = {}, mode = "hold", learning = false}
 KeyLayersCharLayout = KeyLayersCharLayout or KeyLayersLayout or BartenderGlowLayout or emptyCharacterLayout
 KeyLayersLayout, BartenderGlowLayout = nil, nil
 local initialized = false
+local previewIndex, previewPanel, previewInactive, previewToggleKey, previewDefaultStyle
 
 local root = UIParent
 local layers = {
@@ -80,6 +81,51 @@ local function tint(texture, hex, alpha)
     texture:SetColorTexture(r, g, b, alpha)
 end
 
+local strataOrder = {"BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG", "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP"}
+local strataRank = {}
+for rank, strata in ipairs(strataOrder) do strataRank[strata] = rank end
+
+local worldMapVisible, worldMapRank, mapLeft, mapBottom, mapRight, mapTop
+
+local function visibleWorldMap()
+    local map = _G.WorldMapFrame
+    return map and map:IsVisible() and map or nil
+end
+
+local function updateWorldMapLayer(map)
+    worldMapVisible = map ~= nil
+    worldMapRank = map and strataRank[map:GetFrameStrata()]
+    mapLeft = nil
+    if not worldMapRank then return end
+    local left, bottom, width, height = map:GetRect()
+    if not left then return end
+    local scale = map:GetEffectiveScale()
+    mapLeft, mapBottom = left * scale, bottom * scale
+    mapRight, mapTop = (left + width) * scale, (bottom + height) * scale
+end
+
+-- OpenMap renders inside WorldMapFrame. Lower only artwork that touches the map.
+function addon.SetMapAwareStrata(frame, normalStrata, bounds)
+    local strata = normalStrata
+    if mapLeft and strataRank[strata] >= worldMapRank then
+        bounds = bounds or frame
+        local left, bottom, width, height = bounds:GetRect()
+        if left then
+            local scale = bounds:GetEffectiveScale()
+            if left * scale < mapRight and (left + width) * scale > mapLeft
+                and bottom * scale < mapTop and (bottom + height) * scale > mapBottom then
+                strata = strataOrder[math.max(1, worldMapRank - 1)]
+            end
+        end
+    end
+    if frame:GetFrameStrata() ~= strata then frame:SetFrameStrata(strata) end
+end
+
+local function updateBorderStrata(layer)
+    local strata = layer.drawBorderOnTop and "HIGH" or layer.paint:GetFrameStrata()
+    addon.SetMapAwareStrata(layer.borderPaint, strata, layer.paint)
+end
+
 function addon.CreatePaint(frame, anchor)
     anchor = anchor or frame
     frame.paint = CreateFrame("Frame", nil, anchor)
@@ -114,8 +160,8 @@ function addon.PaintStyle(frame, panel)
     local border = addon.borderTextures[panel.borderTexture]
     local native = frame.nativeBorder
     local thickness = math.min(border and border.size or panel.thickness, frame.width / 2, frame.height / 2)
-    local strata = panel.borderOnTop ~= false and "HIGH" or frame.paint:GetFrameStrata()
-    if frame.borderPaint:GetFrameStrata() ~= strata then frame.borderPaint:SetFrameStrata(strata) end
+    frame.drawBorderOnTop = panel.borderOnTop ~= false
+    updateBorderStrata(frame)
     if border and thickness > 0 then
         if not native then
             native = CreateFrame("Frame", nil, frame.borderPaint, "BackdropTemplate")
@@ -193,10 +239,15 @@ function addon.HintSettings(panel)
     return addon.HasHintOverride(panel) and panel or addon.GlobalHints()
 end
 
+local function hintToggleKey(panel)
+    if panel == previewPanel and previewToggleKey ~= nil then return previewToggleKey end
+    return addon.PanelToggleKey(panel)
+end
+
 function addon.LayoutHint(frame, panel)
     local tab = frame.tab
     local hold = addon.HoldLayer(panel)
-    local key = addon.PanelToggleKey(panel)
+    local key = hintToggleKey(panel)
     local label = hold and addon.LayerLabel(hold) or ""
     if key then
         label = (hold and label .. " / " or "") .. (GetBindingText and GetBindingText(key) or key)
@@ -227,7 +278,7 @@ function addon.HintVisibleForFrame(panel)
 end
 
 function addon.HasHint(panel)
-    return addon.GlobalHints().hint and addon.HintVisibleForFrame(panel) and (addon.HoldLayer(panel) or addon.PanelToggleKey(panel))
+    return addon.GlobalHints().hint and addon.HintVisibleForFrame(panel) and (addon.HoldLayer(panel) or hintToggleKey(panel))
 end
 
 function addon.TintHint(tab, panel, active)
@@ -509,10 +560,25 @@ function addon.GetPanelGeometry(panel)
     }
 end
 
+local hoveredPanel
+
+local function updateDraftOutline()
+    local panel = hoveredPanel or previewPanel
+    if panel then
+        addon.UpdateDraftOutline(panelBounds(panel, root:GetEffectiveScale()))
+    else
+        addon.UpdateDraftOutline()
+    end
+end
+
+function addon.SetHoveredPanel(panel)
+    if panel == hoveredPanel then return end
+    hoveredPanel = panel
+    updateDraftOutline()
+end
+
 local effects = {}
 local activeLayer, heldSelfCast, heldWithoutSelfCast = "base"
-
-local previewIndex, previewPanel, previewInactive
 
 addon.styleKeys = {"fill", "fillAlpha", "fillTexture", "border", "borderAlpha", "borderTexture", "thickness", "borderOnTop"}
 function addon.CopyStyle(source, target)
@@ -520,11 +586,12 @@ function addon.CopyStyle(source, target)
 end
 
 function addon.EditStyle(panel)
-    return previewInactive and panel.inactiveStyle or panel, not previewInactive
+    return previewInactive and (panel.inactiveStyle or previewDefaultStyle) or panel, not previewInactive
 end
 
-function addon.SetDraftPreview(index, panel, inactive)
+function addon.SetDraftPreview(index, panel, inactive, toggleKey, defaultStyle)
     previewIndex, previewPanel, previewInactive = index, panel, inactive
+    previewToggleKey, previewDefaultStyle = toggleKey, defaultStyle
     addon.Refresh()
 end
 
@@ -535,6 +602,7 @@ local function setPaintLevel(layer, level)
 end
 
 local function refresh()
+    updateWorldMapLayer(visibleWorldMap())
     local layout = KeyLayersCharLayout
     if not layout then return end
     barBounds = {bars = {}, blizzard = {}}
@@ -587,6 +655,10 @@ local function refresh()
             frame.tabBorder = nil
             frame.panel, frame.dirty = panel, nil
         end
+        if left then
+            updateBorderStrata(frame)
+            if frame.defaultLayer then updateBorderStrata(frame.defaultLayer) end
+        end
         frame.hasBounds = left ~= nil
         frame.hasTab = not not addon.HasHint(panel)
     end
@@ -594,6 +666,7 @@ local function refresh()
         effects[index]:Hide()
         effects[index].panel = nil
     end
+    updateDraftOutline()
     addon.UpdateEditOverlays(panelBounds, boundsForBar, layout, scale)
 end
 
@@ -616,13 +689,7 @@ local function hasVisiblePaint(style)
 end
 
 local activePanels = {}
-local worldMapVisible = false
 local function animate(updateHotkeys)
-    -- OpenMap renders inside the normal world map.
-    local map = _G.WorldMapFrame
-    local mapVisible = map and map:IsVisible() or false
-    updateHotkeys = updateHotkeys or mapVisible ~= worldMapVisible
-    worldMapVisible = mapVisible
     local now = GetTime()
     local activeToggle = addon.ActiveToggle()
     local combatBackground
@@ -636,12 +703,13 @@ local function animate(updateHotkeys)
             local hold = addon.HoldLayer(panel)
             local toggle = addon.PanelToggle(panel)
             local mode = (hold or toggle) and "triggered" or "none"
+            local toggled = toggle and addon.IsPanelToggled(panel, activeToggle)
             local active = (mode == "none" and panel.layer == "always")
                 or (hold and hold ~= "unmodified" and hold == activeLayer)
-                or (toggle and addon.IsPanelToggled(panel, activeToggle) and (toggle ~= "base" or activeLayer == "base"))
+                or (toggled and (toggle ~= "base" or activeLayer == "base"))
                 or (hold == "unmodified" and activeLayer == "base" and activeToggle == 0)
                 or (hold and heldSelfCast ~= nil and (hold == heldSelfCast or hold == heldWithoutSelfCast))
-            if updateHotkeys and active and mode ~= "none" then activePanels[panel] = true end
+            if updateHotkeys and active and mode ~= "none" then activePanels[panel] = toggled and "toggle" or true end
             local alpha = 0
             if active then
                 frame.lastActive, alpha = now, 1
@@ -682,7 +750,7 @@ local function animate(updateHotkeys)
                     frame.tabActive, frame.tabBorder = hintActive, hintStyle
                 end
             end
-            local visible = not mapVisible and frame.hasBounds and (alpha > 0 or showDefaultLayer or frame.hasTab)
+            local visible = frame.hasBounds and (alpha > 0 or showDefaultLayer or frame.hasTab)
                 and not (addon.IsEditingPanel and addon.IsEditingPanel(panel))
             if frame:IsShown() ~= visible then frame:SetShown(visible) end
             if visible and panel.kind == "chat" then
@@ -696,7 +764,7 @@ local function animate(updateHotkeys)
         end
     end
     updateCombatBackground(combatBackground)
-    if updateHotkeys then addon.UpdateGameplayHotkeys(activePanels, mapVisible) end
+    if updateHotkeys then addon.UpdateGameplayHotkeys(activePanels) end
 end
 
 function addon.Refresh()
@@ -749,7 +817,7 @@ local elapsed = 0
 events:SetScript("OnUpdate", function(_, delta)
     if not initialized then return end
     elapsed = elapsed + delta
-    local updateHotkeys = elapsed >= 0.10
+    local updateHotkeys = elapsed >= 0.10 or (visibleWorldMap() ~= nil) ~= worldMapVisible
     if updateHotkeys then
         elapsed = 0
         refresh()

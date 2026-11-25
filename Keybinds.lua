@@ -31,8 +31,7 @@ end
 local function eligibleBars(commands)
     local bases, targets, seenBase = {}, {}, {}
     local selfCast = GetModifiedClick and GetModifiedClick("SELFCAST")
-    for _, panel in ipairs(KeyLayersCharLayout.panels) do
-        local layer = addon.HoldLayer(panel) or addon.PanelToggle(panel)
+    local function addLayer(panel, layer)
         local base = layer == "unmodified" or layer == "base"
         local prefix = prefixes[layer]
         local bars = addon.BarSelection(panel)
@@ -81,6 +80,12 @@ local function eligibleBars(commands)
                 end
             end
         end
+    end
+    for _, panel in ipairs(KeyLayersCharLayout.panels) do
+        local hold, toggle = addon.HoldLayer(panel), addon.PanelToggle(panel)
+        local toggleLayer = type(toggle) == "string" and toggle or (toggle and panel.toggleModifier)
+        if hold then addLayer(panel, hold) end
+        if toggleLayer and toggleLayer ~= hold then addLayer(panel, toggleLayer) end
     end
     for _, target in ipairs(targets) do
         local source = bases[target.sourceIndex]
