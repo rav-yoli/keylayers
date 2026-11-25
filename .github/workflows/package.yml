@@ -57,19 +57,29 @@ jobs:
 
           printf 'game_version_id=%s\n' "$version_id" >> "$GITHUB_OUTPUT"
           printf 'WoW Forever 1.60.1 — CurseForge version ID: %s\n' "$version_id"
+      - name: Build aggregated changelog
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        shell: bash
+        run: |
+          changelog="$RUNNER_TEMP/changelog.md"
+          notes="docs/releases/$GITHUB_REF_NAME.md"
+
+          if [[ ! -f "$notes" ]]; then
+            printf 'Missing release changelog: %s\n' "$notes" >&2
+            exit 1
+          fi
+          cp "$notes" "$changelog"
+
+          printf 'changelog=%s\n' "$changelog" >> "$GITHUB_OUTPUT"
       - name: Publish GitHub release
         if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
           ARCHIVE: ${{ steps.package.outputs.archive }}
+          CHANGELOG: ${{ runner.temp }}/changelog.md
         shell: bash
         run: |
-          notes="docs/releases/$GITHUB_REF_NAME.md"
-          if [[ -f "$notes" ]]; then
-            gh release create "$GITHUB_REF_NAME" "$ARCHIVE" --verify-tag --notes-file "$notes"
-          else
-            gh release create "$GITHUB_REF_NAME" "$ARCHIVE" --verify-tag --generate-notes
-          fi
+          gh release create "$GITHUB_REF_NAME" "$ARCHIVE" --verify-tag --notes-file "$CHANGELOG"
       - name: Upload ZIP to CurseForge
         if: github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name != 'v1.0.1b'
         shell: bash
@@ -77,12 +87,12 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_GAME_VERSION_ID: ${{ steps.curseforge.outputs.game_version_id }}
           ARCHIVE: ${{ steps.package.outputs.archive }}
+          CHANGELOG: ${{ runner.temp }}/changelog.md
         run: |
-          notes="docs/releases/$GITHUB_REF_NAME.md"
           url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
           changelog="[Release notes on GitHub]($url)"
-          if [[ -f "$notes" ]]; then
-            changelog="$(cat "$notes")"
+          if [[ -f "$CHANGELOG" ]]; then
+            changelog="$(cat "$CHANGELOG")"
           fi
 
           metadata="$(jq -nc \

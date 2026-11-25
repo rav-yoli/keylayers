@@ -24,6 +24,60 @@ $tagRef = "refs/tags/$tag"
 $toc = 'KeyLayers by Rav Yoli.toc'
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 
+function Get-VersionParts {
+    param([string]$Name)
+
+    if ($Name -match '^v([0-9]+)\.([0-9]+)\.([0-9]+)([A-Za-z0-9-]*)\.md$') {
+        return [PSCustomObject]@{
+            Major = [int]$Matches[1]
+            Minor = [int]$Matches[2]
+            Patch = [int]$Matches[3]
+            Suffix = $Matches[4]
+        }
+    }
+    return $null
+}
+
+function Build-AggregatedChangelog {
+    param(
+        [string]$Root,
+        [string]$Version,
+        [AllowNull()][string]$PreviousTag
+    )
+
+    $releaseDirectory = Join-Path $Root 'docs\releases'
+    $currentPath = Join-Path $releaseDirectory "v$Version.md"
+    if (-not (Test-Path -LiteralPath $currentPath -PathType Leaf)) {
+        throw "Missing changelog for v$Version."
+    }
+
+    $currentText = [IO.File]::ReadAllText($currentPath).Trim()
+    if (-not $currentText) {
+        throw "Changelog v$Version is empty."
+    }
+
+    if ($PreviousTag) {
+        $previousPath = Join-Path $releaseDirectory "$PreviousTag.md"
+        if (Test-Path -LiteralPath $previousPath -PathType Leaf) {
+            $previousText = [IO.File]::ReadAllText($previousPath).Trim()
+            if ($previousText -and $previousText -ne $currentText) {
+                return "$currentText`n`n$previousText"
+            }
+        }
+    }
+
+    $fallbackNotes = @(
+        Get-ChildItem -LiteralPath $releaseDirectory -Filter 'v*.md' -File |
+            Sort-Object Name -Descending |
+            ForEach-Object { [IO.File]::ReadAllText($_.FullName).Trim() } |
+            Where-Object { $_ }
+    )
+    if ($fallbackNotes.Count -eq 0) {
+        throw 'No release changelogs found.'
+    }
+    return ($fallbackNotes -join "`n`n")
+}
+
 Push-Location -LiteralPath $RepoPath
 try {
     $root = Invoke-Git -GitArguments @('rev-parse', '--show-toplevel')
@@ -53,6 +107,13 @@ try {
         throw "Tag $tag already exists. Use another version or finish the pending release."
     }
 
+    $previousTag = & git describe --tags --abbrev=0 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        $previousTag = $null
+    }
+    $aggregatedChangelog = Build-AggregatedChangelog -Root $root -Version $Version -PreviousTag $previousTag
+    $releaseNotePath = Join-Path $root "docs\releases\$tag.md"
+
     $versionPattern = '[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9-]*'
     $files = @(
         @{ Name = $toc; Pattern = "(?m)^(##[ \t]+Version:[ \t]*)$versionPattern(?=[ \t]*\r?$)"; Required = $true }
@@ -81,6 +142,16 @@ try {
         if ($updated -cne $original) {
             $updates[$file.Name] = $updated
         }
+    }
+
+    $releaseNoteName = "docs/releases/$tag.md"
+    $releaseNoteOriginal = if (Test-Path -LiteralPath $releaseNotePath -PathType Leaf) {
+        [IO.File]::ReadAllText($releaseNotePath)
+    } else {
+        ''
+    }
+    if ($aggregatedChangelog -cne $releaseNoteOriginal) {
+        $updates[$releaseNoteName] = $aggregatedChangelog
     }
 
     if ($updates.Count -gt 0) {

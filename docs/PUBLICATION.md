@@ -37,6 +37,8 @@ Une fois les tests terminés, lance la commande de publication.
 
 Le script vérifie l’état de `main` et la disponibilité du tag en local et sur GitHub. Il met à jour `## Version:` dans le `.toc`, la version de secours dans `Core.lua` et le titre du `README.md` si celui-ci affiche un numéro. Il crée le commit `Release KeyLayers 1.1.0b`, crée le tag annoté `v1.1.0b`, puis pousse `main` et ce tag ensemble. [Documentation Git sur le push atomique](https://git-scm.com/docs/git-push#Documentation/git-push.txt---atomic)
 
+Le script agrège dans `docs/releases/v1.1.0b.md` la note de la nouvelle version devant le changelog du tag précédent. Les anciens fichiers de notes sont supprimés progressivement afin qu’un seul fichier agrégé reste par version publiée. Le workflow utilise directement ce changelog agrégé pour la GitHub Release et l’envoi CurseForge.
+
 Le tag déclenche **Package KeyLayers**. Le workflow construit `KeyLayers-by-Rav-Yoli-1.1.0b.zip`, le joint à la release GitHub, puis envoie la même archive à CurseForge en type **Release**. Le tag historique `v1.0.1b` est exclu de l’envoi automatique à CurseForge.
 
 ## 3. Vérifier la publication
