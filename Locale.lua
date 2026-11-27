@@ -399,6 +399,9 @@ end
 
 addon.releaseHistoryBase = "1.1.13b"
 addon.releaseHistory = {
+    {"2.1.12b", addon.Translate(
+        "L’apparence et l’étiquette de cadre se réinitialisent séparément. L’activation, la visibilité et les raccourcis restent propres au cadre.",
+        "Appearance and frame labels reset separately. Activation, visibility, and shortcuts stay specific to each frame.")},
     {"2.1.11b", addon.Translate(
         "Crée jusqu’à 12 barres KeyLayers, avec jusqu’à 36 boutons par barre d’action et une grille libre. Assigne tes raccourcis par survol ou avec l’assistant. Les barres Blizzard et Bartender4 restent disponibles en option.\n\n"
         .. "Le nouvel éditeur réunit Conteneurs et Styles hérités. Crée un cadre et sa première barre, ajuste la grille automatiquement ou manuellement et règle les marges par axe. Une barre seule entraîne son cadre. Avec plusieurs barres, le cadre s’adapte en direct. Les coordonnées et les changements d’apparence s’affichent en direct.\n\n"

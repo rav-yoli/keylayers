@@ -431,7 +431,7 @@ function A.CreateBarEditor(page,ui,context)
         end
         add(tr("Rattachement", "Attachment"), "target")
         if dimensions then add(dimensions, "geometry") end
-        add(tr("Activation", "Activation"), "activation")
+        if not destination.frameDefaults then add(tr("Activation", "Activation"), "activation") end
         add(tr("Apparence", "Appearance"), "appearance")
         add(tr("Étiquette de cadre", "Frame label"), "frameHint")
         add(tr("Transition", "Transition"), "transition")

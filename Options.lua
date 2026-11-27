@@ -1290,7 +1290,7 @@ local function buildWindow()
         local model = addon.BarLayout
         local hasProfile = editingFrameDefaults or model.totemBar(draft)
         for _, key in ipairs({"target","geometry","activation","appearance","frameHint","transition","display","profileHint"}) do
-            if key~="profileHint" or hasProfile then
+            if (key~="profileHint" or hasProfile) and (key~="activation" or not editingFrameDefaults) then
                 root:CreateButton(titles[key], function() showFrameSection(key) end)
             end
         end
@@ -2069,14 +2069,25 @@ local function buildWindow()
         stopFrameCapture()
         savePanel()
     end)
-    local resetFrame = button(ui.footer, tr("Rétablir l’héritage", "Restore inheritance"), 350, -5, 205, function()
-        if InCombatLockdown() then return end
-        addon.BarLayout.clearFrameOverrides(draft)
-        draft.manualFit, draft.frameSized, draft.autoFitBars = nil, nil, nil
-        loadFields()
-        refresh()
-        refreshPreview()
+    ui.inheritStyle = button(config, tr("Hériter du style", "Use inherited style"), 316, -120, 143, function()
+        if not draft or InCombatLockdown() then return end
+        local target, section = draft, framePage
+        local frameLabel = section == "frameHint"
+        confirm(frameLabel and tr("Retirer les réglages locaux de cette étiquette ?", "Clear this frame label’s local overrides?")
+            or tr("Retirer les réglages locaux de cette apparence ?", "Clear this frame appearance’s local overrides?"), function()
+            if draft ~= target or framePage ~= section or InCombatLockdown() then return end
+            addon.BarLayout.clearFrameOverrides(draft, section)
+            if frameLabel then
+                refreshHints()
+            else
+                inactive = true
+                loadFields()
+                refresh()
+            end
+            refreshPreview()
+        end)
     end)
+    ui.inheritStyle:Hide()
     local remove = button(ui.footer, tr("Supprimer", "Delete"), 225, -5, 115, function()
         local index = selected
         local target = layout().panels[index]
@@ -2115,6 +2126,12 @@ local function buildWindow()
         ui.form:SetShown(draft ~= nil and not ui.hintPane:IsShown())
         ui.footer:SetShown(draft ~= nil)
         ui.empty:SetShown(draft == nil)
+        local visualPage = draft ~= nil and (framePage == "appearance" or framePage == "frameHint")
+        ui.inheritStyle:SetShown(visualPage)
+        local contentTop = visualPage and -149 or -126
+        pageBackground:SetPoint("TOPLEFT", 10, contentTop)
+        ui.form:SetPoint("TOPLEFT", 10, contentTop)
+        ui.hintPane:SetPoint("TOPLEFT", 10, contentTop)
         local titles = framePageTitles()
         ui.categoryTitle:SetText((draft or ui.hintPane:IsShown()) and titles[framePage] or "")
         ui.sections:SetShown(draft ~= nil)
@@ -2229,7 +2246,6 @@ local function buildWindow()
         end
         remove:SetShown(not editingFrameDefaults)
         remove:SetEnabled(panel ~= nil)
-        resetFrame:SetShown(draft ~= nil)
     end
 
     pick = function(index, initial, keepDefaultTab)

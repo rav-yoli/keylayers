@@ -78,6 +78,37 @@ end
 print("OK inherited frame and bar properties, local overrides, false values, coordinates and profile round trip")
 do
     local model = A.BarLayout
+    local panel = {kind="owned", layer="ctrl", activationMode="hold", visibility="combat",
+        toggleId=3, toggleModifier="maj", toggleKey="F8", width=400, paddingX=18, autoFitBars=false,
+        fill="000000", useDefaultStyle=false, inactiveStyle={fill="223344"}, hintVisible=false, hintSide="left"}
+    local legacy = {kind="owned"}
+    local layout = {panels={panel, legacy}, frameDefaults={layer="alt", activationMode="latch", fill="101821"},
+        frameTypeDefaults={owned={visibility="hover", hintSide="right"}},
+        barWorkspace={mode="KeyLayers", bars={}, inheritanceVersion=1}}
+    model.init(layout)
+    assert(legacy.layer=="alt" and legacy.activationMode=="latch" and legacy.visibility=="hover")
+    assert(layout.frameDefaults.layer==nil and layout.frameTypeDefaults.owned.visibility==nil)
+    local new = model.newFrame(layout, "New")
+    assert(new.layer=="always" and new.activationMode~="latch" and new.visibility~="hover")
+
+    model.clearFrameOverrides(panel, "appearance")
+    assert(panel.fill=="101821" and panel.inactiveStyle==nil and panel.hintVisible==false)
+    model.clearFrameOverrides(panel, "frameHint")
+    assert(panel.hintSide=="right" and rawget(panel, "hintVisible")==nil and panel.fill=="101821")
+    assert(panel.layer=="ctrl" and panel.activationMode=="hold" and panel.visibility=="combat")
+    assert(panel.toggleId==3 and panel.toggleModifier=="maj" and panel.toggleKey=="F8")
+    assert(panel.width==400 and panel.paddingX==18 and panel.autoFitBars==false)
+
+    model.setFrameDefaults(layout, "owned", {layer="base", activationMode="none", visibility="hidden", fill="334455"})
+    local previews = model.previewFrameDefaults(layout, "owned", model.frameDefaultsDraft(layout, "owned"))
+    assert(previews[panel].layer=="ctrl" and previews[panel].visibility=="combat" and previews[panel].fill=="334455")
+    local restored=A.Copy(layout)
+    model.init(restored)
+    assert(restored.panels[2].layer=="alt" and restored.panels[2].activationMode=="latch")
+end
+print("OK scoped visual resets, frame-local activation and legacy profile migration")
+do
+    local model = A.BarLayout
     local owned = {kind="owned", name="Inherited"}
     local custom = {kind="owned", name="Customized", fillTexture="parchment"}
     local free = {kind="free", name="Free"}
@@ -566,8 +597,8 @@ do
     treeProbe.globalActive = false
     assert(treeProbe.items[2].children[2].templateKind == "owned" and treeProbe.items[3].children[2].templateKind == "totem")
     assert(treeProbe.items[2].children[2].text == "KeyLayers frame" and treeProbe.items[2].children[3].text == "Blizzard frame")
-    assert(#treeProbe.items[2].children[2].children == 7)
-    treeProbe.choose(treeProbe.items[2].children[2].children[5])
+    assert(#treeProbe.items[2].children[2].children == 6)
+    treeProbe.choose(treeProbe.items[2].children[2].children[4])
     assert(treeProbe.templateRoute[1] == "owned" and treeProbe.templateRoute[2] == "frameHint")
     treeProbe.choose(treeProbe.items[3])
     assert(treeProbe.items[3].active)

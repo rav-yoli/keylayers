@@ -11,9 +11,17 @@ local function keys(list)
     return set
 end
 
-local frameProperties = keys([[width height padding paddingX paddingY paddingLinked fill fillAlpha fillTexture border borderAlpha borderTexture
-    thickness borderOnTop depth linger fade useDefaultStyle inactiveStyle layer activationMode visibility
-    hintVisible hintOverride hint hintSide hintOrientation font size profileHint]])
+local frameResetProperties = {
+    appearance = keys([[fill fillAlpha fillTexture border borderAlpha borderTexture thickness
+        borderOnTop useDefaultStyle inactiveStyle]]),
+    frameHint = keys([[hintVisible hintOverride hint hintSide hintOrientation font size]]),
+}
+local frameProperties = keys([[width height padding paddingX paddingY paddingLinked depth linger fade profileHint]])
+for _, properties in pairs(frameResetProperties) do
+    for key in pairs(properties) do frameProperties[key] = true end
+end
+local frameActivationProperties = {"layer", "activationMode", "visibility"}
+local frameActivationDefaults = {layer="always", activationMode="none", visibility="always"}
 local barProperties = keys([[count columns gap scale alpha empty keys macros border shape cooldown visibility
     reverse slotOffset page cooldownColor showCooldownText borderWidth borderColor borderStyle borderOpacity
     auraProgress totemProgress totemHoldMs totemOrder profileAnchor profileFont profileFontSize
@@ -31,17 +39,21 @@ local builtinBar = {gap=3, scale=1, alpha=1, empty=true, keys=true, macros=true,
 local builtinFrame
 local panelMetatables, barMetatables = setmetatable({}, {__mode="k"}), setmetatable({}, {__mode="k"})
 
+local function inheritedFrameValue(layout, panel, key)
+    local typed = layout.frameTypeDefaults and layout.frameTypeDefaults[panel.kind]
+    if typed and typed[key] ~= nil then return typed[key] end
+    local global = layout.frameDefaults
+    if global then return global[key] end
+end
+
 function M.inheritFrame(layout, panel)
     if not builtinFrame then
         builtinFrame = A.NewPanel("")
-        builtinFrame.layer = "always"
     end
     if not panelMetatables[layout] then
         panelMetatables[layout] = {__index=function(self, key)
             if not frameProperties[key] then return end
-            local typed = layout.frameTypeDefaults and layout.frameTypeDefaults[self.kind]
-            if typed and typed[key] ~= nil then return typed[key] end
-            local value = layout.frameDefaults and layout.frameDefaults[key]
+            local value = inheritedFrameValue(layout, self, key)
             if value ~= nil then return value end
             return builtinFrame[key]
         end}
@@ -49,13 +61,15 @@ function M.inheritFrame(layout, panel)
     return setmetatable(panel, panelMetatables[layout])
 end
 
-function M.clearFrameOverrides(panel)
-    for key in pairs(frameProperties) do rawset(panel, key, nil) end
+function M.clearFrameOverrides(panel, section)
+    local properties = section == nil and frameProperties or assert(frameResetProperties[section])
+    for key in pairs(properties) do rawset(panel, key, nil) end
 end
 
 function M.newFrame(layout, name)
     local panel = A.NewPanel(name)
     M.clearFrameOverrides(panel)
+    panel.layer = frameActivationDefaults.layer
     return M.inheritFrame(layout, panel)
 end
 
@@ -80,10 +94,6 @@ function M.setFrameDefaults(layout, kind, defaults)
     end
 end
 
-function M.frameDefaultsDraft(layout, kind)
-    return M.inheritFrame({frameDefaults = kind and layout.frameDefaults or nil}, A.Copy(M.frameDefaults(layout, kind)))
-end
-
 function M.frameDefaultsFromDraft(panel)
     local defaults = {}
     for key in pairs(frameProperties) do
@@ -91,6 +101,11 @@ function M.frameDefaultsFromDraft(panel)
         if value ~= nil then defaults[key] = type(value) == "table" and A.Copy(value) or value end
     end
     return defaults
+end
+
+function M.frameDefaultsDraft(layout, kind)
+    return M.inheritFrame({frameDefaults = kind and layout.frameDefaults or nil},
+        M.frameDefaultsFromDraft(M.frameDefaults(layout, kind)))
 end
 
 function M.previewFrameDefaults(layout, kind, draft)
@@ -228,6 +243,25 @@ local function migrateBarPaging(layout, state)
     state.localBarPaging = true
 end
 
+-- Preserve the activation that was in effect before it became frame-local.
+local function migrateFrameActivation(layout, state)
+    if state.localFrameActivation then return end
+    for _, panel in ipairs(layout.panels) do
+        for _, key in ipairs(frameActivationProperties) do
+            if rawget(panel, key) == nil then
+                local inherited = inheritedFrameValue(layout, panel, key)
+                panel[key] = inherited == nil and frameActivationDefaults[key] or inherited
+            end
+        end
+    end
+    local function clearDefaults(defaults)
+        for _, key in ipairs(frameActivationProperties) do defaults[key] = nil end
+    end
+    if layout.frameDefaults then clearDefaults(layout.frameDefaults) end
+    for _, defaults in pairs(layout.frameTypeDefaults or {}) do clearDefaults(defaults) end
+    state.localFrameActivation = true
+end
+
 function M.init(layout)
     if layout.barWorkspace then
         local state = layout.barWorkspace
@@ -242,6 +276,7 @@ function M.init(layout)
         migrateActionLock(state)
         migrateInheritance(layout, state)
         migrateBarPaging(layout, state)
+        migrateFrameActivation(layout, state)
         for _, panel in ipairs(layout.panels) do M.inheritFrame(layout, panel) end
         for _, bar in pairs(state.bars) do inheritBar(layout, bar) end
         return state
@@ -256,6 +291,7 @@ function M.init(layout)
     layout.barWorkspace = state
     migrateActionLock(state)
     migrateInheritance(layout, state)
+    migrateFrameActivation(layout, state)
     for _, panel in ipairs(layout.panels) do M.inheritFrame(layout, panel) end
     return state
 end
