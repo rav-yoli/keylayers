@@ -237,6 +237,21 @@ local function buildWindow()
     local function notify(message) status:SetText(message or "") end
 
     local selected, draft, profile
+    local function frameMenu(parent, x, y, width, build)
+        return menu(parent, x, y, width, function(root)
+            -- WoW generates shown dropdowns during SetupMenu, before pick() selects a frame.
+            local panel = draft
+            if not panel then return end
+            local function optionRadio(caption, value, current, select)
+                radio(root, caption, value, function()
+                    if draft == panel then return current() end
+                end, function(selection)
+                    if draft == panel then select(selection) end
+                end)
+            end
+            build(root, optionRadio)
+        end)
+    end
     local editingFrameDefaults
     local framePage = "target"
     local refresh, pick, setEditing, closeHints, openActivation, closeActivation, cancelShortcutCapture
@@ -614,7 +629,7 @@ local function buildWindow()
     local function chatLabel(id)
         return tr("Tchat %d", "Chat %d"):format(id)
     end
-    local kind = menu(ui.target, 18, -37, 265, function(root)
+    local kind = frameMenu(ui.target, 18, -37, 265, function(_, optionRadio)
         local function current()
             return draft.kind == "chat" and draft.chatId or draft.kind
         end
@@ -655,11 +670,11 @@ local function buildWindow()
             refresh()
             refreshPreview()
         end
-        radio(root, kinds.owned, "owned", current, selectKind)
-        radio(root, kinds.free, "free", current, selectKind)
+        optionRadio(kinds.owned, "owned", current, selectKind)
+        optionRadio(kinds.free, "free", current, selectKind)
         for _, key in ipairs(addon.linkedKinds) do
             if not addon.BarLayout.bartenderKind(key) or addon.BarLayout.installed() then
-                radio(root, kinds[key], key, current, selectKind)
+                optionRadio(kinds[key], key, current, selectKind)
             end
         end
         for id = 1, math.max(NUM_CHAT_WINDOWS or 10, draft.chatId or 0) do
@@ -669,7 +684,7 @@ local function buildWindow()
                 or (chat and (id == 1 or (name and name ~= "") or chat:IsVisible())) then
                 local title = chatLabel(id)
                 if name and name ~= "" then title = title .. " · " .. clean(name) end
-                radio(root, title, id, current, selectKind)
+                optionRadio(title, id, current, selectKind)
             end
         end
     end)
@@ -702,19 +717,19 @@ local function buildWindow()
         refresh()
         refreshPreview()
     end
-    ui.hold = menu(ui.activation, 18, -48, 190, function(root)
+    ui.hold = frameMenu(ui.activation, 18, -48, 190, function(_, optionRadio)
         local function current() return addon.HoldLayer(draft) or false end
-        radio(root, addon.PanelToggle(draft) and tr("Aucune", "None")
+        optionRadio(addon.PanelToggle(draft) and tr("Aucune", "None")
             or tr("Toujours visible", "Always visible"), false, current, function() setFrameHold(nil) end)
         for _, key in ipairs(addon.layers) do
             local holdKey = key == "base" and "unmodified" or key
-            radio(root, addon.LayerLabel(holdKey), holdKey, current, setFrameHold)
+            optionRadio(addon.LayerLabel(holdKey), holdKey, current, setFrameHold)
         end
     end)
-    ui.toggle = menu(ui.activation, 223, -48, 182, function(root)
+    ui.toggle = frameMenu(ui.activation, 223, -48, 182, function(_, optionRadio)
         local function current() return addon.PanelToggle(draft) and addon.ToggleModifier(draft) or false end
-        radio(root, tr("Aucune", "None"), false, current, function() setToggleLayer(nil) end)
-        for _, key in ipairs(addon.layers) do radio(root, addon.LayerLabel(key), key, current, setToggleLayer) end
+        optionRadio(tr("Aucune", "None"), false, current, function() setToggleLayer(nil) end)
+        for _, key in ipairs(addon.layers) do optionRadio(addon.LayerLabel(key), key, current, setToggleLayer) end
     end)
     ui.activationHelp = label(ui.activation, "", 18, -84, "GameFontHighlightSmall")
     ui.activationHelp:SetWidth(602)
@@ -728,9 +743,9 @@ local function buildWindow()
         {"hidden", tr("Masquée", "Hidden")},
     }
     label(ui.activation, tr("Visibilité", "Visibility"), 18, -134)
-    ui.frameVisibility = menu(ui.activation, 223, -129, 182, function(root)
+    ui.frameVisibility = frameMenu(ui.activation, 223, -129, 182, function(_, optionRadio)
         for _, option in ipairs(frameVisibility) do
-            radio(root, option[2], option[1], function() return draft.visibility or "always" end, function(value)
+            optionRadio(option[2], option[1], function() return draft.visibility or "always" end, function(value)
                 draft.visibility = value
                 refresh()
                 refreshPreview()
@@ -1053,7 +1068,10 @@ local function buildWindow()
     end
     local function buildHoldMenu(root, row)
         if not activationPopup:IsShown() then return end
-        local function current() return addon.HoldLayer(targetFor(row.index)) or "never" end
+        local function current()
+            local panel = targetFor(row.index)
+            return panel and addon.HoldLayer(panel) or "never"
+        end
         radio(root, modeLabels.none, "never", current, function() setHold(row.index, nil) end)
         for _, layer in ipairs(addon.layers) do
             local key = layer == "base" and "unmodified" or layer
@@ -1187,12 +1205,14 @@ local function buildWindow()
     local orientations = {
         {"horizontal", tr("Horizontal", "Horizontal")}, {"vertical", tr("Vertical", "Vertical")},
     }
-    local function orientationValue() return settings().hintOrientation or "horizontal" end
+    local function orientationValue()
+        return (draft or globalScope) and settings().hintOrientation or "horizontal"
+    end
     local orientation = menu(ui.hintPane, 192, -109, 170, function(root)
-        if not ui.hintPane:IsShown() then return end
+        if not ui.hintPane:IsShown() or not (draft or globalScope) then return end
         for _, choice in ipairs(orientations) do
             radio(root, choice[2], choice[1], orientationValue, function(value)
-                setHint("hintOrientation", value)
+                if draft or globalScope then setHint("hintOrientation", value) end
             end)
         end
     end)
@@ -1437,14 +1457,14 @@ local function buildWindow()
     end
 
     local function copyFrameValue(parent, x, y, spec, read, set)
-        local copy = menu(parent, x, y, 24, function(root)
+        local copy = frameMenu(parent, x, y, 24, function(root)
             local found = false
             for sourceIndex, source in ipairs(layout().panels) do
                 if sourceIndex ~= selected then
                     local value = read(source)
                     if value and value >= spec[4] and value <= spec[5] then
                         found = true
-                        root:CreateButton(("%s  ·  %g"):format(source.name, value), function() set(value) end)
+                        root:CreateButton(("%s  ·  %g"):format(source.name, value), function() if draft then set(value) end end)
                     end
                 end
             end
@@ -1521,11 +1541,11 @@ local function buildWindow()
             refreshHints()
             refreshPreview()
         end
-        local stateMenu = menu(design, 0, 0, 255, function(root)
+        local stateMenu = frameMenu(design, 0, 0, 255, function(_, optionRadio)
             for _, entry in ipairs({{false, tr("Style par défaut", "Default style")},
                 {true, tr("Style activé", "Activated style")}}) do
                 if not entry[1] or addon.HoldLayer(draft) or addon.PanelToggle(draft) then
-                    radio(root, entry[2], entry[1], function() return activeDesign end, function(value)
+                    optionRadio(entry[2], entry[1], function() return activeDesign end, function(value)
                         activeDesign = value
                         inactive = not value
                         refreshHints()
@@ -1548,9 +1568,9 @@ local function buildWindow()
         end)
         local function styleMenu(x, title, key, choices)
             label(design, title, x, -62)
-            local picker = menu(design, x, -80, 126, function(root)
+            local picker = frameMenu(design, x, -80, 126, function(_, optionRadio)
                 for _, choice in ipairs(choices) do
-                    radio(root, choice[2], choice[1], function() return currentStyle()[key] or "solid" end,
+                    optionRadio(choice[2], choice[1], function() return currentStyle()[key] or "solid" end,
                         function(value) setStyle(key, value) end)
                 end
             end)
@@ -1590,9 +1610,9 @@ local function buildWindow()
         local borderAlpha = styleField("borderAlpha", tr("Bordure (%) ↵", "Border (%) ↵"), 132, -159, 3, percent, showPercent)
         local fonts = {{"game",tr("Jeu","Game")},{"chat",tr("Discussion","Chat")},{"numbers",tr("Chiffres","Numbers")}}
         label(design, tr("Police", "Font"), 0, -214)
-        local fontMenu = menu(design, 0, -231, 126, function(root)
+        local fontMenu = frameMenu(design, 0, -231, 126, function(_, optionRadio)
             for _, choice in ipairs(fonts) do
-                radio(root, choice[2], choice[1], function() return settings().font or "game" end,
+                optionRadio(choice[2], choice[1], function() return settings().font or "game" end,
                     function(value) setHint("font", value) end)
             end
         end)
@@ -1721,9 +1741,9 @@ local function buildWindow()
         local function textureMenu(container, key, styles, title, refreshColor, refreshSize)
             local function current() return target()[key] or "solid" end
             label(container, title, 10, textureY)
-            local picker = menu(container, 10, textureY - 16, 285, function(root)
+            local picker = frameMenu(container, 10, textureY - 16, 285, function(_, optionRadio)
                 for _, style in ipairs(styles) do
-                    radio(root, style[2], style[1], current, function(value)
+                    optionRadio(style[2], style[1], current, function(value)
                         target(true)[key] = value
                         inactive = not activeStyle
                         refreshColor()
@@ -1911,10 +1931,11 @@ local function buildWindow()
         end
     end)
 
-    local copyStyle = menu(ui.default, 400, -25, 225, function(root)
+    local copyStyle = frameMenu(ui.default, 400, -25, 225, function(root)
         for index, source in ipairs(layout().panels) do
             if index ~= selected then
                 root:CreateButton(source.name, function()
+                    if not draft then return end
                     inactive = true
                     addon.CopyFrameStyle(source, draft)
                     pendingBarStyles = {}

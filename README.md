@@ -1,4 +1,4 @@
-# KeyLayers by Rav Yoli 2.1.12b
+# KeyLayers by Rav Yoli 2.1.15b
 
 **KeyLayers is a standalone action bar manager for WoW Forever**, built around keyboard shortcuts, keypads, and the way you actually play. Switch between layers like **Base**, **Shift**, and **Ctrl** to put more actions under the same keys.
 

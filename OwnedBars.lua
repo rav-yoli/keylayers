@@ -121,24 +121,17 @@ local function spellCooldownObject(spell)
     return C_Spell.GetSpellCooldownDuration(spell)
 end
 
-local function playerAuraDuration(button, spell)
+local function playerAuraDuration(spell)
     local api = C_UnitAuras
     if issecretvalue and issecretvalue(spell) then spell = nil end
-    if button.auraSpell ~= spell then
-        button.auraSpell, button.auraInstance = spell, nil
-    end
     if not api or not api.GetPlayerAuraBySpellID or not spell then return end
     local aura = api.GetPlayerAuraBySpellID(spell)
-    if not aura and InCombatLockdown() and button.auraInstance and api.GetAuraDataByAuraInstanceID then
-        aura = api.GetAuraDataByAuraInstanceID("player", button.auraInstance)
-    end
-    local instance = aura and aura.auraInstanceID
-    button.auraInstance = not (issecretvalue and issecretvalue(instance)) and instance or nil
     if not aura then return end
+    local instance = aura.auraInstanceID
     local duration, expires = aura.duration, aura.expirationTime
     if issecretvalue and (issecretvalue(duration) or issecretvalue(expires)) then
-        if api.GetAuraDuration and button.auraInstance then
-            local object = api.GetAuraDuration("player", button.auraInstance)
+        if api.GetAuraDuration and not issecretvalue(instance) and instance then
+            local object = api.GetAuraDuration("player", instance)
             if object and object.GetRemainingDuration and object.GetTotalDuration then
                 local remaining, total = object:GetRemainingDuration(), object:GetTotalDuration()
                 if not (issecretvalue(remaining) or issecretvalue(total)) then
@@ -283,7 +276,7 @@ local function draw(b, preview)
     local isTotem = bar.kind == "totem"
     local totemMode = isTotem and (bar.totemProgress or "bar") or (bar.auraProgress or "none")
     if not isTotem and bar.kind == "action" and totemMode ~= "none" then
-        totemStart, totemDuration, totemDurationObject = playerAuraDuration(b, auraSpell or spell)
+        totemStart, totemDuration, totemDurationObject = playerAuraDuration(auraSpell or spell)
         if totemStart or totemDurationObject then
             b.nativeCD:SetHideCountdownNumbers(true)
             seconds = totemStart and (totemStart + totemDuration - GetTime())
@@ -300,7 +293,8 @@ local function draw(b, preview)
         math.max(0,math.min(1,(totemStart+totemDuration-GetTime())/totemDuration))
     local life=remaining and remaining>0
     if b.dismissTotem then
-        local dismissible = bar.showTotemDismiss ~= false and activeTotem and not not (life or totemDurationObject)
+        local dismissible = not InCombatLockdown() and bar.showTotemDismiss ~= false
+            and activeTotem and not not (life or totemDurationObject)
         if dismissible and GetTotemCannotDismiss then
             local cannotDismiss = GetTotemCannotDismiss(b.slot)
             dismissible = not ((issecretvalue and issecretvalue(cannotDismiss)) or cannotDismiss)
@@ -815,31 +809,30 @@ local function configureTotemDismiss(button)
         dismiss.dismissible = CreateFrame("Frame", nil, UIParent)
         dismiss.dismissible:Hide()
         dismiss:SetFrameRef("dismissible", dismiss.dismissible)
-        dismiss:SetFrameRef("totem", button)
-        dismiss:SetFrameRef("selector", button.selector)
         dismiss:SetAttribute("_onstate-combat", [[
-            self:EnableMouse(newstate == "on" or self:GetFrameRef("dismissible"):IsShown())
+            if newstate == "on" then
+                self:EnableMouse(false)
+                self:SetAttribute("dismissPress", nil)
+                self:SetAttribute("type1", nil)
+            end
         ]])
         RegisterStateDriver(dismiss,"combat","[combat] on; off")
         dismiss:WrapScript(dismiss, "OnClick", [[
             self:SetAttribute("type1", nil)
+            local combat = self:GetAttribute("state-combat") == "on"
+            if SecureCmdOptionParse then combat = SecureCmdOptionParse("[combat] on; off") == "on" end
+            if combat then return false end
+
             local active = self:GetFrameRef("dismissible"):IsShown()
             if down then
                 self:SetAttribute("dismissPress", active)
-                local overTotem = self:GetFrameRef("totem"):IsUnderMouse()
-                self:SetAttribute("proxyPress", not active and overTotem)
-                if active or not overTotem then return false end
-            elseif self:GetAttribute("dismissPress") then
-                self:SetAttribute("dismissPress", nil)
-                if active then self:SetAttribute("type1", "destroytotem") end
-                return
-            elseif self:GetAttribute("proxyPress") then
-                self:SetAttribute("proxyPress", nil)
-            else
                 return false
             end
-            local target, owner = self, self:GetFrameRef("selector")
-        ]] .. A.TotemClickBody)
+            local pressed = self:GetAttribute("dismissPress")
+            self:SetAttribute("dismissPress", nil)
+            if not pressed or not active then return false end
+            self:SetAttribute("type1", "destroytotem")
+        ]])
         dismiss:RegisterForClicks("LeftButtonDown","LeftButtonUp")
         dismiss:SetPassThroughButtons("RightButton", "MiddleButton")
         dismiss:SetAttribute("useOnKeyDown", false)
@@ -877,7 +870,6 @@ local function configureTotemDismiss(button)
         dismiss:SetPoint("CENTER", button, "CENTER", math.sin(angle) * distance, math.cos(angle) * distance)
         dismiss:SetAttribute("totem-slot", button.slot)
         dismiss:SetAttribute("dismissPress", nil)
-        dismiss:SetAttribute("proxyPress", nil)
         dismiss:SetShown(button.slot ~= nil and button.model.showTotemDismiss ~= false)
         dismiss:SetAlpha(0)
         dismiss.dismissible:Hide()

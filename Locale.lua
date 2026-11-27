@@ -399,6 +399,15 @@ end
 
 addon.releaseHistoryBase = "1.1.13b"
 addon.releaseHistory = {
+    {"2.1.15b", addon.Translate(
+        "Les barres d’action ignorent les auras que le jeu ne rend pas accessibles et continuent de s’actualiser.",
+        "Action bars now skip inaccessible auras and continue updating.")},
+    {"2.1.14b", addon.Translate(
+        "Correction des erreurs à l’ouverture de la configuration quand aucun cadre n’est sélectionné.",
+        "Fixed errors when opening settings with no frame selected.")},
+    {"2.1.13b", addon.Translate(
+        "Correction des erreurs Lua sur les boutons de totems en combat. Le retrait depuis la barre KeyLayers est disponible hors combat.",
+        "Fixed Lua errors on totem buttons in combat. Dismissing totems from the KeyLayers bar is available out of combat.")},
     {"2.1.12b", addon.Translate(
         "L’apparence et l’étiquette de cadre se réinitialisent séparément. L’activation, la visibilité et les raccourcis restent propres au cadre.",
         "Appearance and frame labels reset separately. Activation, visibility, and shortcuts stay specific to each frame.")},

@@ -8,6 +8,7 @@ function IsAltKeyDown() return false end
 function IsControlKeyDown() return false end
 function IsShiftKeyDown() return false end
 function InCombatLockdown() return combat end
+function SecureCmdOptionParse() return combat and "on" or "off" end
 function wipe(t) for k in pairs(t) do t[k]=nil end end
 function A.Copy(t)
     local copy={}
@@ -186,7 +187,13 @@ UIParent=obj("UIParent")
 function methods:SetAttribute(k,v) self.attrs[k]=v end
 function methods:GetAttribute(k) return self.attrs[k] end
 function methods:SetFrameRef(k,v) self.refs[k]=v end
-function methods:GetFrameRef(k) return self.refs[k] end
+local inaccessibleCombatSignal = {IsShown=function() error("Invalid frame handle") end}
+function methods:GetFrameRef(k)
+    if combat and (k=="mouseReleased" or k=="elapsed" or k=="dismissible") then
+        return inaccessibleCombatSignal
+    end
+    return self.refs[k]
+end
 function methods:SetScript(k,v) self.scripts[k]=v end
 function methods:EnableKeyboard(enabled) self.keyboardEnabled = enabled end
 function methods:EnableMouse(enabled) self.mouseEnabled = enabled end
@@ -978,21 +985,23 @@ assert(native.BorderArt.alpha==1 and BagsBar:GetParent()==UIParent)
 do
     assert(A.FormatRemaining(179) == "3m" and A.FormatRemaining(15) == "15")
     local oldAuraAPI, oldInfo, oldSecret = C_UnitAuras, GetActionInfo, issecretvalue
-    local private, auraApplied = {}, true
+    local private, auraApplied, auraReadable = {}, true, true
     local auraDuration = {}
     function auraDuration:GetRemainingDuration() return 180 end
     function auraDuration:GetTotalDuration() return 600 end
     C_UnitAuras = {
         GetPlayerAuraBySpellID = function(spell)
-            if auraApplied and spell == 324 and not combat then
-                return {duration=600, expirationTime=285, auraInstanceID=42}
-            end
+            if not auraApplied or not auraReadable or spell ~= 324 then return end
+            if combat then return {duration=private, expirationTime=private, auraInstanceID=42} end
+            return {duration=600, expirationTime=285, auraInstanceID=42}
         end,
-        GetAuraDataByAuraInstanceID = function(unit, instance)
-            assert(unit == "player" and instance == 42)
-            if auraApplied then return {duration=private, expirationTime=private, auraInstanceID=42} end
+        GetAuraDataByAuraInstanceID = function()
+            error("Auras cannot be accessed when secret")
         end,
-        GetAuraDuration = function() return auraDuration end,
+        GetAuraDuration = function(unit, instance)
+            assert(auraReadable and unit == "player" and instance == 42)
+            return auraDuration
+        end,
     }
     function issecretvalue(value) return value == private end
     function GetActionInfo(slot)
@@ -1017,6 +1026,12 @@ do
     function methods:SetCooldownFromDurationObject(object) self.durationObject = object end
     ticker.scripts.OnUpdate(ticker,.2)
     assert(first.totemClock:IsShown() and first.totemClock.durationObject == auraDuration)
+    auraReadable = false
+    for _ = 1, 10 do ticker.scripts.OnUpdate(ticker,.2) end
+    assert(not first.totemClock:IsShown() and not first.totemTrack:IsShown())
+    auraReadable = true
+    ticker.scripts.OnUpdate(ticker,.2)
+    assert(first.totemClock:IsShown())
     auraApplied = false
     ticker.scripts.OnUpdate(ticker,.2)
     assert(not first.totemClock:IsShown() and not first.totemTrack:IsShown())
@@ -1045,15 +1060,21 @@ do
     placed=false
     ticker.scripts.OnUpdate(ticker,.2)
     assert(dismiss:GetAlpha()==0 and not dismiss:IsMouseEnabled())
+    placed = true
+    ticker.scripts.OnUpdate(ticker,.2)
+    assert(dismiss:IsMouseEnabled() and dismiss:GetAlpha()==1)
     combat = true
+    dismiss:SetAttribute("state-combat", "on")
     snippet(dismiss:GetAttribute("_onstate-combat"), {self=dismiss, newstate="on"})
-    function totemButton:IsUnderMouse() return true end
-    clickDismiss(true)
-    clickDismiss(false)
-    assert(dismiss:GetAttribute("type1") == "spell")
-    function totemButton:IsUnderMouse() return false end
+    assert(not dismiss:IsMouseEnabled())
+    ticker.scripts.OnUpdate(ticker,.2)
+    assert(dismiss:GetAlpha()==0)
     assert(clickDismiss(true) == false and clickDismiss(false) == false and not dismiss:GetAttribute("type1"))
     combat = false
+    dismiss:SetAttribute("state-combat", "off")
+    ticker.scripts.OnUpdate(ticker,.2)
+    assert(dismiss:IsMouseEnabled() and dismiss:GetAlpha()==1)
+    placed = false
     totems.totemDismissAngle, totems.totemDismissDistance = 90, 10
     totems.totemDismissBorderWidth = 4
     totems.totemDismissBorderColor, totems.totemDismissBackground = "FF0000", "0000FF"
@@ -1788,6 +1809,7 @@ do
     press(true); timing.fire()
     assert(owner.bindings["SHIFT-MOUSEWHEELUP"])
     press(false)
+    assert(elem.attrs.type1=="spell" and not elem.carousel:IsShown() and not next(owner.bindings))
     IsShiftKeyDown = oldShift
     snippet(elem.wrappers.OnClick.body,{control=owner,self=elem,button="RightButton",down=false})
     assert(elem.carousel:IsShown() and owner.attrs.latchedCarousel)
@@ -2212,4 +2234,61 @@ end)()
     assert(first.x==90 and panel.x==50 and preview.width>initialWidth)
     A.SetEditor(nil)
     print("OK red handle moves a single-bar frame and resizes a multi-bar frame live")
+end)()
+
+;(function()
+    local file = assert(io.open("Options.lua"))
+    local source = file:read("*a")
+    file:close()
+    local function optionsSection(first, last)
+        local start = assert(source:find(first, 1, true))
+        return source:sub(start, assert(source:find(last, start, true)) - 1)
+    end
+    local templateCode = optionsSection("local function menu(", "local function copyIcon(")
+        .. optionsSection("local function radio(", "local function confirm(")
+        .. optionsSection("    local selected, draft, profile", "    local editingFrameDefaults")
+    local createDropdown
+    local instantiate = assert(load(templateCode .. [[
+        return frameMenu, function(value) draft=value end
+    ]], "frame menu fixture", "t", setmetatable({
+        CreateFrame=function(...) return createDropdown(...) end,
+    }, {__index=_G})))
+    local frameMenu, setDraft = instantiate()
+    createDropdown = function()
+        local dropdown = {SetPoint=noop, SetWidth=noop}
+        function dropdown:GenerateMenu()
+            self.options = {}
+            local root = {}
+            function root:CreateRadio(_, current, select)
+                dropdown.options[#dropdown.options+1] = {current=current, select=select}
+                current() -- Blizzard checks the current value immediately.
+            end
+            self.generator(self, root)
+        end
+        function dropdown:SetupMenu(generator)
+            self.generator = generator
+            self:GenerateMenu()
+        end
+        return dropdown
+    end
+    local currentDraft, effect
+    local dropdown = frameMenu({}, 0, 0, 100, function(_, optionRadio)
+        optionRadio(currentDraft.kind, "owned", function() return currentDraft.kind end, function(value) effect = value end)
+    end)
+    assert(#dropdown.options == 0)
+    currentDraft = {kind="owned"}
+    setDraft(currentDraft)
+    dropdown:GenerateMenu()
+    assert(#dropdown.options == 1 and dropdown.options[1].current())
+    dropdown.options[1].select()
+    assert(effect=="owned")
+    effect = nil
+    currentDraft = nil
+    setDraft(nil)
+    assert(not dropdown.options[1].current())
+    dropdown.options[1].select()
+    assert(effect==nil)
+    dropdown:GenerateMenu()
+    assert(#dropdown.options == 0)
+    print("OK frame dropdowns initialize without a selection and regenerate after selection")
 end)()

@@ -237,7 +237,7 @@ A.TotemClickBody = [[
     if button == "RightButton" then
         if not down then
             if combat then
-                if owner:GetAttribute("held") and not owner:GetFrameRef("mouseReleased"):IsShown() then
+                if owner:GetAttribute("held") then
                     owner:RunAttribute("cancel")
                 else
                     owner:RunAttribute("open", true)
@@ -255,10 +255,12 @@ A.TotemClickBody = [[
     end
     if button ~= "LeftButton" then return false end
 
+    -- In combat, only a secure wheel input can distinguish selection from a tap.
+
     target:SetAttribute("type1", nil)
     if down then
         totem:CallMethod("FlashPressed")
-        if owner:GetFrameRef("mouseReleased"):IsShown() then owner:RunAttribute("stop") end
+        if not combat and owner:GetFrameRef("mouseReleased"):IsShown() then owner:RunAttribute("stop") end
         if owner:GetAttribute("held") then return false end
         owner:RunAttribute("open", false)
     else
@@ -268,7 +270,7 @@ A.TotemClickBody = [[
         end
         if not owner:GetAttribute("cancelledRelease")
             and not (owner:GetAttribute("held") and owner:GetAttribute("scrolled"))
-            and not owner:GetFrameRef("elapsed"):IsShown() and not owner:GetFrameRef("mouseReleased"):IsShown() then
+            and (combat or not owner:GetFrameRef("elapsed"):IsShown() and not owner:GetFrameRef("mouseReleased"):IsShown()) then
             local spell = totem:GetAttribute("spell")
             totem:CallMethod("FlashPressed", not spell, true)
             if spell then
@@ -291,6 +293,7 @@ local function prepareCapture(b)
             self:RunAttribute("stop")
         else
             self:SetAttribute("cancelledRelease", nil)
+            self:RunAttribute("stop")
         end
     ]])
     owner:SetAttribute("stop", [[
@@ -388,13 +391,15 @@ local function prepareCapture(b)
     wheel:RegisterForClicks("AnyDown")
     wheel:SetAttribute("_onclick",[[
         local owner=self:GetParent()
-        if button=="MiddleButton" or owner:GetFrameRef("mouseReleased"):IsShown() then
+        local combat = owner:GetAttribute("state-combat") == "on"
+        if SecureCmdOptionParse then combat = SecureCmdOptionParse("[combat] on; off") == "on" end
+        if button=="MiddleButton" or not combat and owner:GetFrameRef("mouseReleased"):IsShown() then
             owner:RunAttribute("cancel")
             return
         end
         if owner:GetAttribute("held") then
             owner:SetAttribute("scrolled",true)
-            if not owner:GetFrameRef("elapsed"):IsShown() then return end
+            if not combat and not owner:GetFrameRef("elapsed"):IsShown() then return end
             local b=owner:GetFrameRef("button")
             local count=b:GetAttribute("choiceCount")
             if count>0 then
@@ -587,6 +592,7 @@ function A.TotemTooltip(b)
         if InCombatLockdown() then
             GameTooltip:AddLine(tr("Maintenir ou clic droit : ouvrir le carrousel · Molette : choisir",
                 "Hold or right-click: open carousel · Scroll: choose"))
+            GameTooltip:AddLine(tr("Relâcher sans défiler : lancer le totem", "Release without scrolling: cast the totem"))
             GameTooltip:AddLine(tr("Clic molette : profil suivant · Maj + clic molette : précédent",
                 "Middle-click: next profile · Shift + middle-click: previous"))
         else
