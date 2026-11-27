@@ -29,15 +29,6 @@ local function label(parent, value, x, y, font)
     return item
 end
 
-local function section(parent, title, top, height)
-    local bg = parent:CreateTexture(nil, "BACKGROUND")
-    bg:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, top)
-    bg:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -10, top)
-    bg:SetHeight(height)
-    bg:SetColorTexture(0.14, 0.20, 0.27, 0.46)
-    label(parent, title, 18, top - 8, "GameFontNormal")
-end
-
 local function button(parent, value, x, y, width, callback)
     local item = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     item:SetSize(width, 24)
@@ -155,7 +146,8 @@ end
 local fields = {
     {"x", "X", "X", -10000, 10000}, {"y", "Y", "Y", -10000, 10000},
     {"width", "Largeur", "Width", 1, 10000}, {"height", "Hauteur", "Height", 1, 10000},
-    {"padding", "Marge", "Padding", 0, 200},
+    {"paddingX", "Marge horizontale", "Horizontal padding", 0, 10000},
+    {"paddingY", "Marge verticale", "Vertical padding", 0, 10000},
     {"fill", "Fond (hex)", "Fill (hex)"},
     {"fillAlpha", "Opacité fond", "Fill opacity", 0, 100, 100},
     {"border", "Bordure (hex)", "Border (hex)"},
@@ -182,8 +174,8 @@ end
 
 local function buildWindow()
     local window = CreateFrame("Frame", "BartenderGlowWindow", UIParent, "BackdropTemplate")
-    window:SetSize(680, 755)
-    window:SetScale(math.min(1, (UIParent:GetWidth() - 32) / 680, (UIParent:GetHeight() - 32) / 755))
+    window:SetSize(900, 755)
+    window:SetScale(math.min(1, (UIParent:GetWidth() - 32) / 900, (UIParent:GetHeight() - 32) / 755))
     window:SetPoint("CENTER")
     window:SetFrameStrata("DIALOG")
     window:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -225,8 +217,11 @@ local function buildWindow()
 
 
     local config = CreateFrame("Frame", nil, window)
-    config:SetPoint("TOPLEFT", 0, -70)
+    config:SetPoint("TOPLEFT", 220, -70)
     config:SetPoint("BOTTOMRIGHT")
+    local barsPage = CreateFrame("Frame", nil, window)
+    barsPage:SetAllPoints(config)
+    barsPage:Hide()
     local profiles = CreateFrame("Frame", nil, window)
     profiles:SetAllPoints(config)
     profiles:Hide()
@@ -242,66 +237,83 @@ local function buildWindow()
     local function notify(message) status:SetText(message or "") end
 
     local selected, draft, profile
+    local editingFrameDefaults
+    local framePage = "target"
     local refresh, pick, setEditing, closeHints, openActivation, closeActivation, cancelShortcutCapture
-    local updateHeading, requestPick, leaveDraft
+    local updateHeading, requestPick, leaveDraft, loadFields
     local ui = {}
-    local pendingToggleKey
+    local pendingToggleKey, pendingBarStyles
     local stopFrameCapture = function() end
     local editing, inactive = false, false
-    local keybinds
-    local function defaultStyle(panel, write)
-        if panel.inactiveStyle then return panel.inactiveStyle end
-        if panel.useDefaultStyle then return panel end
-
-        -- Legacy frames can have a separate activated style with a transparent default.
-        local style = {}
-        addon.CopyStyle(panel, style)
-        style.fillAlpha, style.borderAlpha = 0, 0
-        if write then panel.inactiveStyle = style end
-        return style
-    end
+    local keybinds, barEditor
+    local defaultStyle = addon.DefaultFrameStyle
     local function layout() return KeyLayersCharLayout end
     local function refreshPreview()
-        local panel = window:IsShown() and config:IsShown() and draft or nil
+        local panel = not editingFrameDefaults and window:IsShown() and config:IsShown() and draft or nil
+        ui.frameStylePreviews = nil
+        local dimensions
+        if editingFrameDefaults and draft and window:IsShown() and config:IsShown() then
+            local kind = editingFrameDefaults ~= "global" and editingFrameDefaults or nil
+            dimensions = addon.BarLayout.previewFrameDimensions(layout(), kind, draft)
+            if editing and framePage=="appearance" then
+                ui.frameStylePreviews = addon.BarLayout.previewFrameDefaults(layout(), kind, draft)
+            end
+        end
+        addon.SetDraftBarStyles(panel and pendingBarStyles or nil)
         addon.SetDraftPreview(selected, panel, inactive, pendingToggleKey,
-            panel and inactive and not panel.inactiveStyle and defaultStyle(panel) or nil)
+            panel and inactive and not panel.inactiveStyle and defaultStyle(panel) or nil, dimensions)
+        addon.UpdateOwnedFramePositions()
+        if panel and ui.updateFitMargins then ui.updateFitMargins(panel) end
         if updateHeading then updateHeading() end
         if ui.updateHint and draft then ui.updateHint() end
     end
+    ui.globalPage = CreateFrame("Frame",nil,window)
+    ui.globalPage:SetPoint("TOPLEFT",230,-78)
+    ui.globalPage:SetPoint("BOTTOMRIGHT",-18,14)
+    ui.globalPage:Hide()
     local tabStates = {}
-    local function selectTabNow(page)
-        if page == assignment and InCombatLockdown() then
+    local assignedFrame
+    local function selectTabNow(page,bindingFrame)
+        if (page == assignment or page == barsPage) and InCombatLockdown() then
             notify(tr("Mode Édition indisponible en combat.", "Edit mode is unavailable in combat."))
             return
         end
+        local fromBars = barsPage:IsShown()
+        if page == barsPage and config:IsShown() and barEditor then barEditor.follow(selected) end
         closeHints()
         closeActivation()
         if page == assignment and not editing then
             setEditing(true)
-        elseif page ~= config and page ~= assignment and editing then
+        elseif page ~= config and page ~= barsPage and page ~= assignment and editing then
             setEditing(false)
         end
         config:SetShown(page == config)
+        barsPage:SetShown(page == barsPage)
         profiles:SetShown(page == profiles)
+        assignedFrame = page == assignment and (bindingFrame or assignedFrame) or nil
         assignment:SetShown(page == assignment)
         notes:SetShown(page == notes)
+        ui.globalPage:SetShown(page == ui.globalPage)
         status:SetShown(page == config or page == profiles)
-        for target, showState in pairs(tabStates) do showState(target == page, true) end
+        local workspace=page==config or page==barsPage or page==assignment or page==ui.globalPage
+        for target, showState in pairs(tabStates) do showState(target==page or (target==config and workspace),true) end
+        if barEditor then barEditor.navigation(workspace,page==config and selected or assignedFrame) end
         notify()
         if page == assignment then
             if not keybinds then
                 keybinds = addon.CreateKeybindingAssistant(assignment,
-                    {label = label, button = button, menu = menu, radio = radio, tab = tab, check = check}, window)
+                    {label = label, button = button, menu = menu, radio = radio, check = check, confirm = confirm}, window)
             end
-            if not keybinds:IsShown() then keybinds:Open() end
+            if bindingFrame or not keybinds:IsShown() then keybinds:Open(layout().panels[bindingFrame]) end
         elseif keybinds then
             keybinds:Hide()
         end
+        if page == config and fromBars and barEditor then pick(barEditor.selectedFrame() or selected) end
         refreshPreview()
     end
     local function selectTab(page)
         if page == config and config:IsShown() then return end
-        if page == assignment and InCombatLockdown() then
+        if (page == assignment or page == barsPage) and InCombatLockdown() then
             notify(tr("Mode Édition indisponible en combat.", "Edit mode is unavailable in combat."))
             return
         end
@@ -312,14 +324,12 @@ local function buildWindow()
     tabDivider:SetPoint("TOPRIGHT", -10, -68)
     tabDivider:SetHeight(1)
     tabDivider:SetColorTexture(0.29, 0.42, 0.54, 0.8)
-    tabStates[config] = tab(window, tr("Configuration", "Settings"), 18, -39, 111, function() selectTab(config) end)
-    tabStates[assignment] = tab(window, tr("Assigner les raccourcis", "Assign keybindings"), 133, -39, 151,
-        function() selectTab(assignment) end)
-    tabStates[profiles] = tab(window, tr("Profils", "Profiles"), 288, -39, 75, function() selectTab(profiles) end)
-    tabStates[notes] = tab(window, tr("Notes de version", "Release notes"), 367, -39, 135, function() selectTab(notes) end)
+    tabStates[config] = tab(window, tr("Cadres et barres", "Frames and bars"), 18, -39, 155, function() selectTab(config) end)
+    tabStates[profiles] = tab(window, tr("Profils", "Profiles"), 177, -39, 74, function() selectTab(profiles) end)
+    tabStates[notes] = tab(window, tr("Versions", "Versions"), 255, -39, 89, function() selectTab(notes) end)
     for page, showState in pairs(tabStates) do showState(page == config, true) end
 
-    local editToggle = button(window, tr("Mode Édition", "Edit mode"), 510, -39, 152, function()
+    local editToggle = addon.CreateWorkspaceSwitch(window, function()
         if editing then
             leaveDraft(function()
                 setEditing(false)
@@ -330,6 +340,19 @@ local function buildWindow()
         end
     end)
 
+    local editLabel = window:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    editLabel:SetPoint("RIGHT", window, "TOPRIGHT", -18, -53)
+    editLabel:SetText(tr("Édition", "Edit mode"))
+    editToggle:SetPoint("RIGHT", editLabel, "LEFT", -8, 0)
+    editToggle:SetActive(editing)
+    editToggle:SetHitRectInsets(0, -8 - editLabel:GetStringWidth(), 0, 0)
+    editToggle:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_TOP")
+        GameTooltip:SetText(editing and tr("Quitter l’édition","Exit edit mode")
+            or tr("Activer le mode édition","Enable edit mode"))
+        GameTooltip:Show()
+    end)
+    editToggle:SetScript("OnLeave",function() GameTooltip:Hide() end)
     label(notes, tr("Notes de version", "Release notes"), 18, -17, "GameFontNormalLarge")
     label(notes, tr("Versions après %s", "Versions after %s"):format(addon.releaseHistoryBase),
         18, -43, "GameFontHighlightSmall")
@@ -393,72 +416,107 @@ local function buildWindow()
     button(config, tr("Déclencheurs globaux", "Global triggers"), 18, -4, 173, function()
         leaveDraft(function() openActivation() end)
     end)
-    local altWarning = label(config, tr("Alt + F4 à éviter (ferme le jeu)", "Avoid Alt + F4 (closes the game)"),
+    local altWarning = label(config, tr("Alt + F4 est réservé. Utilise F5.", "Alt + F4 is reserved. Use F5."),
         506, -7, "GameFontHighlightSmall")
     altWarning:SetWidth(156)
     altWarning:SetJustifyH("LEFT")
     altWarning:SetWordWrap(true)
-    section(config, tr("Cadre en cours d’édition", "Frame being edited"), -31, 86)
+    local frameHeading = config:CreateTexture(nil, "BACKGROUND")
+    frameHeading:SetPoint("TOPLEFT", 10, -31)
+    frameHeading:SetPoint("TOPRIGHT", -10, -31)
+    frameHeading:SetHeight(86)
+    frameHeading:SetColorTexture(unpack(addon.BarLayout.workspaceSelectionColor))
+    local pageBackground = config:CreateTexture(nil, "BACKGROUND")
+    pageBackground:SetPoint("TOPLEFT", 10, -126)
+    pageBackground:SetPoint("BOTTOMRIGHT", -10, 69)
+    pageBackground:SetColorTexture(unpack(addon.BarLayout.workspacePageColor))
+    ui.categoryTitle = label(config, "", 18, -39, "GameFontHighlightSmall")
+    ui.categoryTitle:SetFontObject(GameFontHighlight)
     local currentName = label(config, "", 18, -57, "GameFontNormalLarge")
     currentName:SetWidth(325)
     currentName:SetJustifyH("LEFT")
     currentName:SetWordWrap(false)
+    local name = CreateFrame("EditBox", nil, config, "InputBoxTemplate")
+    name:SetPoint("TOPLEFT", 23, -52)
+    name:SetSize(315, 23)
+    name:SetAutoFocus(false)
+    name:SetMaxLetters(48)
+    name:Hide()
+    local rename = addon.CreateRenameButton(config, tr("Renommer le cadre", "Rename frame"))
+    rename:SetScript("OnClick", function()
+        if not draft or editingFrameDefaults or InCombatLockdown() then return end
+        name.original = draft.name
+        rename:Hide()
+        currentName:Hide()
+        name:Show()
+        name:SetFocus()
+        name:HighlightText()
+    end)
+    name:SetScript("OnEditFocusLost", function(self)
+        self:Hide()
+        self.original = nil
+        currentName:Show()
+        if updateHeading then updateHeading() end
+    end)
+    name:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    name:SetScript("OnEscapePressed", function(self)
+        if draft and self.original then
+            draft.name = self.original
+            self:SetText(draft.name)
+            refreshPreview()
+            if barEditor and selected then barEditor.navigation(true, selected, draft.name) end
+        end
+        self:ClearFocus()
+    end)
     local currentDetails = label(config, "", 18, -79, "GameFontHighlightSmall")
-    currentDetails:SetWidth(325)
+    currentDetails:SetWidth(265)
     currentDetails:SetJustifyH("LEFT")
     currentDetails:SetWordWrap(false)
     local draftStatus = label(config, "", 18, -98, "GameFontNormalSmall")
-    local hoveredIndex
-    local function clearFrameHover()
-        hoveredIndex = nil
-        addon.SetHoveredPanel(nil)
+    local function placeNew(panel)
+        local scale=window:GetEffectiveScale()/UIParent:GetEffectiveScale()
+        local width,height=UIParent:GetWidth(),UIParent:GetHeight()
+        local left,bottom=window:GetLeft(),window:GetBottom()
+        if not left or not bottom then return end
+        local bounds={left=left*scale-width/2,right=window:GetRight()*scale-width/2,
+            bottom=bottom*scale-height/2,top=window:GetTop()*scale-height/2}
+        local x,y=addon.BarLayout.placeBeside(panel,bounds,width,height)
+        if x then
+            panel.x,panel.y=x,y
+        else
+            -- A group may be too wide to share the screen with the full inspector.
+            window:ClearAllPoints()
+            local scale=window:GetScale()
+            if scale>.6 then
+                window:SetScale(math.max(.6,scale*.8))
+            end
+            window:SetPoint("TOPRIGHT",UIParent,"TOPRIGHT",-12,-12)
+        end
+
     end
-    local panels = menu(config, 348, -54, 156, function(root)
-        for index, panel in ipairs(layout().panels) do
-            local entry = radio(root, panel.name, index, function() return selected end, function(value)
-                clearFrameHover()
-                requestPick(value)
-            end)
-            entry:SetOnEnter(function()
-                hoveredIndex = index
-                addon.SetHoveredPanel(index == selected and draft or panel)
-            end)
-            entry:SetOnLeave(function()
-                if hoveredIndex == index then clearFrameHover() end
-            end)
-        end
-    end)
-    panels:RegisterCallback("OnMenuClose", clearFrameHover)
-    panels:HookScript("OnHide", clearFrameHover)
-    local function makeDraft(actionBars)
-        if not editing then setEditing(true) end
-        local panel = addon.NewPanel(tr("Nouveau cadre", "New frame"))
-        panel.layer = "always"
-        if actionBars then
-            local loaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
-            panel.kind = loaded and loaded("Bartender4") and "bars" or "blizzard"
-        end
-        if editing then
-            local space = UIParent:GetWidth() - window:GetWidth() * window:GetScale()
-            panel.x = math.floor((space - UIParent:GetWidth()) / 2)
-        end
-        return panel
+    local function newFrame()
+        if InCombatLockdown() then return end
+        leaveDraft(function()
+            if InCombatLockdown() then return end
+            selectTabNow(config)
+            if not editing then setEditing(true) end
+            local panel = addon.BarLayout.newFrame(layout(), addon.BarLayout.uniqueName(tr("Nouveau cadre", "New frame")))
+            placeNew(panel)
+            table.insert(layout().panels, panel)
+            if barEditor then barEditor.showContainers() end
+            pick(#layout().panels)
+            barEditor.navigation(true, selected, draft.name, true)
+        end)
     end
-    ui.newFrame = menu(config, 512, -54, 147, function(root)
-        root:CreateButton(tr("Mettre en évidence des barres d’action", "Highlight action bars"), function()
-            leaveDraft(function() pick(nil, makeDraft(true)) end)
-        end)
-        root:CreateButton(tr("Décorer un élément de l’interface", "Decorate a UI element"), function()
-            leaveDraft(function() pick(nil, makeDraft(false)) end)
-        end)
-    end)
-    ui.newFrame:OverrideText(tr("Nouveau cadre", "New frame"))
+    ui.newFrame = button(config, tr("Nouveau cadre", "New frame"), 0, -52, 177, newFrame)
+    ui.newFrame:ClearAllPoints()
+    ui.newFrame:SetPoint("TOPRIGHT", -22, -52)
 
     ui.form = CreateFrame("ScrollFrame", nil, config, "UIPanelScrollFrameTemplate")
-    ui.form:SetPoint("TOPLEFT", 0, -126)
+    ui.form:SetPoint("TOPLEFT", 10, -126)
     ui.form:SetPoint("BOTTOMRIGHT", -30, 69)
     local editor = CreateFrame("Frame", nil, ui.form)
-    editor:SetSize(650, 1)
+    editor:SetSize(640, 1)
     ui.form:SetScrollChild(editor)
     ui.form:EnableMouseWheel(true)
     ui.form:SetScript("OnMouseWheel", function(self, delta)
@@ -477,76 +535,20 @@ local function buildWindow()
     footerDivider:SetHeight(1)
     footerDivider:SetColorTexture(0.29, 0.42, 0.54, 0.8)
     ui.groups = {}
-    local function group(title, height, collapsed, parent, rows)
+    local function group(height, parent, rows)
         rows = rows or ui.groups
         local block = CreateFrame("Frame", nil, parent or editor)
         block:SetWidth(650)
-        local row = {block = block, height = height, closed = collapsed}
+        local row = {block = block, height = height}
         rows[#rows + 1] = row
-        if collapsed ~= nil then
-            local border = CreateFrame("Frame", nil, block, "BackdropTemplate")
-            local inset = parent and 12 or 8
-            border:SetPoint("TOPLEFT", inset, 0)
-            border:SetPoint("BOTTOMRIGHT", -inset, 0)
-            border:SetBackdrop({edgeFile = [[Interface\Buttons\WHITE8X8]], edgeSize = 1})
-            border:EnableMouse(false)
-            -- The nested style panels draw above the section body.
-            border:SetFrameLevel(block:GetFrameLevel() + 8)
-            row.body = CreateFrame("Frame", nil, block)
-            row.body:SetPoint("TOPLEFT", 0, -32)
-            row.body:SetPoint("BOTTOMRIGHT")
-            local disclosure = CreateFrame("Button", nil, block)
-            disclosure:SetPoint("TOPLEFT", parent and 22 or 10, 0)
-            disclosure:SetPoint("TOPRIGHT", parent and -16 or -10, 0)
-            disclosure:SetHeight(30)
-            local background = disclosure:CreateTexture(nil, "BACKGROUND")
-            background:SetAllPoints()
-            local hover = disclosure:CreateTexture(nil, "HIGHLIGHT")
-            hover:SetAllPoints()
-            hover:SetColorTexture(0.48, 0.72, 0.88, 0.13)
-            local caption = label(disclosure, title, 32, -8, "GameFontHighlight")
-            caption:SetPoint("RIGHT", -12, 0)
-            caption:SetJustifyH("LEFT")
-            local upper, lower = disclosure:CreateLine(nil, "ARTWORK"), disclosure:CreateLine(nil, "ARTWORK")
-            for _, line in ipairs({upper, lower}) do
-                line:SetThickness(2)
-                line:SetColorTexture(0.54, 0.83, 0.96, 1)
-            end
-            local function updateDisclosure()
-                border:SetBackdropBorderColor(0.40, 0.57, 0.68, row.closed and 0.22 or 0.68)
-                if row.closed then
-                    upper:SetStartPoint("LEFT", disclosure, 13, 5)
-                    upper:SetEndPoint("LEFT", disclosure, 18, 0)
-                    lower:SetStartPoint("LEFT", disclosure, 18, 0)
-                    lower:SetEndPoint("LEFT", disclosure, 13, -5)
-                    background:SetColorTexture(0.13, 0.20, 0.28, 1)
-                else
-                    upper:SetStartPoint("LEFT", disclosure, 11, 3)
-                    upper:SetEndPoint("LEFT", disclosure, 16, -2)
-                    lower:SetStartPoint("LEFT", disclosure, 16, -2)
-                    lower:SetEndPoint("LEFT", disclosure, 21, 3)
-                    background:SetColorTexture(0.16, 0.32, 0.40, 1)
-                end
-            end
-            updateDisclosure()
-            disclosure:SetScript("OnClick", function()
-                row.closed = not row.closed
-                updateDisclosure()
-                ui.reflow()
-            end)
-        else
-            row.body = block
-            section(block, title, 0, height)
-        end
-        return row.body, row
+        return block, row
     end
     local function placeGroups(parent, rows, y)
         for _, row in ipairs(rows) do
             row.block:ClearAllPoints()
             row.block:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
-            row.block:SetHeight(row.closed and 30 or row.height)
-            if row.body ~= row.block then row.body:SetShown(not row.closed) end
-            if row.block:IsShown() then y = y + row.block:GetHeight() + 6 end
+            row.block:SetHeight(row.height)
+            if row.block:IsShown() then y = y + row.height + 6 end
         end
         return y
     end
@@ -557,46 +559,108 @@ local function buildWindow()
         local range = ui.form:GetVerticalScrollRange()
         ui.form:SetVerticalScroll(math.min(ui.form:GetVerticalScroll(), range))
     end
-    ui.target = group(tr("Quoi encadrer ?", "What should the frame surround?"), 166)
-    ui.geometry, ui.geometryRow = group(tr("Position et dimensions", "Position and size"), 86, true)
-    ui.activation = group(tr("Quand l’afficher ?", "When should it appear?"), 146)
-    ui.appearance, ui.appearanceRow = group(tr("Apparence", "Appearance"), 103)
-    local appearanceBackground = ui.appearance:CreateTexture(nil, "BACKGROUND", nil, -1)
-    appearanceBackground:SetPoint("TOPLEFT", 7, 0)
-    appearanceBackground:SetPoint("BOTTOMRIGHT", -7, 0)
-    appearanceBackground:SetColorTexture(0.10, 0.15, 0.21, 0.9)
-    local appearanceRail = ui.appearance:CreateTexture(nil, "ARTWORK")
-    appearanceRail:SetPoint("TOPLEFT", 7, 0)
-    appearanceRail:SetPoint("BOTTOMLEFT", 7, 0)
-    appearanceRail:SetWidth(2)
-    appearanceRail:SetColorTexture(0.29, 0.58, 0.71, 1)
+    ui.templateTarget = group(112)
+    ui.templateDescription = label(ui.templateTarget, "", 18, -34, "GameFontHighlight")
+    ui.templateDescription:SetWidth(602)
+    ui.templateDescription:SetJustifyH("LEFT")
+    ui.templateDescription:SetWordWrap(true)
+    ui.autoFitFrames = addon.CreateWorkspaceSwitch(config, function()
+        if InCombatLockdown() then return end
+        local model = addon.BarLayout
+        if editingFrameDefaults == "owned" then
+            model.init(layout()).autoFitFrames = not model.autoFitEnabled()
+        elseif not editingFrameDefaults then
+            local panel = layout().panels[selected]
+            local bar = model.singleFrameBar(panel)
+            if not bar or not draft then return end
+            model.setFitFrame(bar, not model.autoFitEnabled(panel))
+            draft.autoFitBars, draft.manualFit = panel.autoFitBars, panel.manualFit
+        end
+        refresh()
+        refreshPreview()
+        addon.RebuildBars()
+    end)
+    ui.autoFitFrames:SetPoint("TOPLEFT", 458, -34)
+    local autoFitLabel = label(config, tr("Ajustement auto", "Auto fit"), 502, -36, "GameFontHighlight")
+    ui.autoFitFrames:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(addon.BarLayout.autoFitLabel)
+        GameTooltip:Show()
+    end)
+    ui.autoFitFrames:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    ui.autoFitFrames:Hide()
+    autoFitLabel:Hide()
+    ui.templateDescriptions = {
+        owned = tr("Regroupe les styles communs des cadres liés aux barres KeyLayers.",
+            "Shared styles for frames attached to KeyLayers bars."),
+        blizzard = tr("Regroupe les styles communs des cadres liés aux barres d’action Blizzard.",
+            "Shared styles for frames attached to Blizzard action bars."),
+        free = tr("Regroupe les styles communs des cadres libres.", "Shared styles for free frames."),
+        global = tr("Définit les propriétés communes à tous les types de cadres.", "Shared properties for every frame type."),
+    }
+    ui.target = group(166)
+    ui.geometry, ui.geometryRow = group(217)
+    ui.activation = group(177)
+    ui.appearance, ui.appearanceRow = group(103)
     ui.styleGroups = {}
-    ui.default = group(tr("Style par défaut", "Default style"), 278, false, ui.appearance, ui.styleGroups)
-    ui.styles, ui.stylesRow = group(tr("Style activé", "Activated style"), 278, true, ui.appearance, ui.styleGroups)
-    ui.transition = group(tr("Transition", "Transition"), 109, true)
-    ui.display = group(tr("Niveau d’affichage", "Display level"), 91, true)
+    ui.default = group(242, ui.appearance, ui.styleGroups)
+    label(ui.default, tr("Style par défaut", "Default style"), 18, -7, "GameFontHighlight")
+    ui.activeStyleToggle = group(30, ui.appearance, ui.styleGroups)
+    ui.styles = group(238, ui.appearance, ui.styleGroups)
+    ui.transition = group(77)
+    ui.display = group(59)
 
-    local name = field(ui.target, tr("Renommer", "Rename"), 18, -31, 290)
     local kinds = addon.kindLabels
     local function chatLabel(id)
         return tr("Tchat %d", "Chat %d"):format(id)
     end
-    local kind = menu(ui.target, 340, -46, 265, function(root)
+    local kind = menu(ui.target, 18, -37, 265, function(root)
         local function current()
             return draft.kind == "chat" and draft.chatId or draft.kind
         end
         local function selectKind(value)
-            if type(value) == "number" then
+            if InCombatLockdown() or not draft then return end
+            local model = addon.BarLayout
+            if value == "owned" then
+                local saved = layout().panels[selected]
+                local geometry = addon.GetPanelGeometry(draft) or draft
+                -- Stage the attachment on a copy so a full bar list leaves the frame unchanged.
+                local target = model.inheritFrame(layout(), addon.Copy(saved))
+                target.kind = "owned"
+                for _, key in ipairs({"x", "y", "width", "height"}) do target[key] = geometry[key] end
+                local state = model.init(layout())
+                if #model.children(target)==0 then
+                    local created, reason = model.new("action", target, true)
+                    if not created then
+                        notify(reason=="bar-limit" and tr("Limite de 12 barres KeyLayers atteinte.", "The 12 KeyLayers bars are already in use.")
+                            or tr("Impossible de placer la première barre.", "Could not place the first bar."))
+                        return
+                    end
+                end
+                layout().panels[selected] = target
+                target.microPosition = nil
+                draft.kind, draft.barFrameId = target.kind, target.barFrameId
+                for _, key in ipairs({"x", "y", "width", "height"}) do draft[key] = target[key] end
+                state.mode = "KeyLayers"
+                addon.RebuildBars()
+                if barEditor then barEditor.navigation(true, selected, draft.name) end
+            elseif type(value) == "number" then
                 draft.kind, draft.chatId = "chat", value
             else
                 draft.kind = value
+                draft.bartenderAttachment = nil
             end
+            if draft.kind ~= "micro" then draft.microPosition = nil end
+            loadFields()
             refresh()
             refreshPreview()
         end
+        radio(root, kinds.owned, "owned", current, selectKind)
         radio(root, kinds.free, "free", current, selectKind)
         for _, key in ipairs(addon.linkedKinds) do
-            radio(root, kinds[key], key, current, selectKind)
+            if not addon.BarLayout.bartenderKind(key) or addon.BarLayout.installed() then
+                radio(root, kinds[key], key, current, selectKind)
+            end
         end
         for id = 1, math.max(NUM_CHAT_WINDOWS or 10, draft.chatId or 0) do
             local name = id <= (NUM_CHAT_WINDOWS or 10) and GetChatWindowInfo and GetChatWindowInfo(id)
@@ -609,7 +673,7 @@ local function buildWindow()
             end
         end
     end)
-    label(ui.target, tr("Type de cadre", "Frame type"), 340, -31)
+    label(ui.target, tr("Type de rattachement", "Attachment type"), 18, -15)
     label(ui.activation, tr("Touche maintenue", "Hold key"), 18, -32)
     label(ui.activation, tr("Couche à activer", "Layer to activate"), 223, -32)
     label(ui.activation, tr("Raccourci de bascule", "Toggle shortcut"), 421, -32)
@@ -657,6 +721,22 @@ local function buildWindow()
     ui.activationHelp:SetJustifyH("LEFT")
     ui.activationHelp:SetWordWrap(true)
     ui.activationHelp:SetHeight(40)
+    local frameVisibility = {
+        {"always", tr("Toujours visible", "Always visible")},
+        {"combat", tr("En combat", "In combat")},
+        {"hover", tr("Au survol", "On hover")},
+        {"hidden", tr("Masquée", "Hidden")},
+    }
+    label(ui.activation, tr("Visibilité", "Visibility"), 18, -134)
+    ui.frameVisibility = menu(ui.activation, 223, -129, 182, function(root)
+        for _, option in ipairs(frameVisibility) do
+            radio(root, option[2], option[1], function() return draft.visibility or "always" end, function(value)
+                draft.visibility = value
+                refresh()
+                refreshPreview()
+            end)
+        end
+    end)
     ui.capture = CreateFrame("Frame", nil, window)
     ui.capture:SetAllPoints(window)
     local function cancelFrameCapture()
@@ -691,7 +771,8 @@ local function buildWindow()
         if not ui.capturing then return end
         if key == "ESCAPE" then cancelFrameCapture(); notify(); return end
         if key == "UNKNOWN" or key:match("^[LR]?CTRL$") or key:match("^[LR]?SHIFT$") or key:match("^[LR]?ALT$") then return end
-        if key == "F4" and IsAltKeyDown() then return end
+        local warning = addon.ReservedShortcutMessage(key, IsAltKeyDown())
+        if warning then notify(warning); return end
         if IsShiftKeyDown() then key = "SHIFT-" .. key end
         if IsControlKeyDown() then key = "CTRL-" .. key end
         if IsAltKeyDown() then key = "ALT-" .. key end
@@ -851,19 +932,17 @@ local function buildWindow()
             popupStatus:SetText(tr("Touche temporairement utilisée par %s.", "Key temporarily used by %s.")
                 :format(addon.ShortcutActionLabel(owner)))
         else
-            popupStatus:SetText(reason == "combat"
+            popupStatus:SetText((reason == "reserved" and addon.ReservedShortcutMessage(key)) or (reason == "combat"
                 and tr("Modifie les raccourcis hors combat.", "Change shortcuts out of combat.")
-                or tr("Cette touche ne peut pas être assignée.", "This key cannot be assigned."))
+                or tr("Cette touche ne peut pas être assignée.", "This key cannot be assigned.")))
         end
     end
     capture:SetScript("OnKeyDown", function(_, key)
         if not captureLayer or pressedKey or key == "UNKNOWN" then return end
         if key:match("^[LR]CTRL$") or key:match("^[LR]SHIFT$") or key:match("^[LR]ALT$")
             or key == "CTRL" or key == "SHIFT" or key == "ALT" then return end
-        if key == "F4" and IsAltKeyDown() then
-            popupStatus:SetText(tr("Alt + F4 à éviter (ferme le jeu)", "Avoid Alt + F4 (closes the game)"))
-            return
-        end
+        local warning = addon.ReservedShortcutMessage(key, IsAltKeyDown())
+        if warning then popupStatus:SetText(warning); return end
         pressedKey = key
         if IsShiftKeyDown() then key = "SHIFT-" .. key end
         if IsControlKeyDown() then key = "CTRL-" .. key end
@@ -1041,55 +1120,63 @@ local function buildWindow()
         redrawActivation()
     end
 
-    local hintPopup = CreateFrame("Frame", nil, window, "BackdropTemplate")
-    hintPopup:SetSize(380, 302)
-    hintPopup:SetPoint("CENTER")
-    hintPopup:SetFrameStrata("FULLSCREEN_DIALOG")
-    hintPopup:EnableMouse(true)
-    hintPopup:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8X8",
-        edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1,
-    })
-    hintPopup:SetBackdropColor(0.07, 0.10, 0.14, 1)
-    hintPopup:SetBackdropBorderColor(0.42, 0.56, 0.70, 1)
-    hintPopup:Hide()
-    closeHints = function() hintPopup:Hide() end
-    local heading = label(hintPopup, "", 16, -15, "GameFontNormalLarge")
-    local description = label(hintPopup, tr(
-        "L’onglet indique sur quelle touche appuyer pour activer le cadre.",
-        "The tab shows which key to press to activate the frame."),
+    ui.hintPane = CreateFrame("Frame", nil, config)
+    ui.hintPane:SetPoint("TOPLEFT", 10, -126)
+    ui.hintPane:SetPoint("BOTTOMRIGHT", -10, 69)
+    ui.hintPane:Hide()
+    closeHints = function()
+        local wasShown = ui.hintPane:IsShown()
+        ui.hintPane:Hide()
+        if framePage=="frameHint" or framePage=="profileHint" or framePage=="globalHint" then framePage="target" end
+        ui.form:SetShown(draft ~= nil)
+        if wasShown and refresh then refresh() end
+    end
+    local heading = label(ui.hintPane, "", 16, -15, "GameFontNormalLarge")
+    local description = label(ui.hintPane, tr(
+        "L’étiquette indique sur quelle touche appuyer pour activer le cadre.",
+        "The label shows which key activates the frame."),
         16, -40, "GameFontHighlightSmall")
     description:SetWidth(348)
     description:SetJustifyH("LEFT")
     description:SetWordWrap(true)
-    local close = CreateFrame("Button", nil, hintPopup, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -3, -3)
-    close:SetScript("OnClick", closeHints)
-    local globalScope, refreshHints
+    local back = button(ui.hintPane, tr("Retour aux propriétés", "Back to properties"), 0, -10, 172, function()
+        closeHints()
+        if barEditor then barEditor.navigation(true, selected, draft and draft.name) end
+    end)
+    back:ClearAllPoints()
+    back:SetPoint("TOPRIGHT", -14, -10)
+    local globalScope, profileScope, refreshHints
     local function settings()
+        if profileScope then return addon.ProfileHintSettings(draft, addon.BarLayout.totemBar(draft)) end
         return globalScope and addon.GlobalHints() or addon.HintSettings(draft)
     end
-    local function canEditHints()
-        return globalScope or addon.HasHintOverride(draft)
+    local function writeProfileHint()
+        if rawget(draft, "profileHint") == nil then draft.profileHint = addon.Copy(settings()) end
+        return draft.profileHint
+    end
+    local function inheritHint()
+        local global = addon.GlobalHints()
+        draft.hint, draft.hintSide, draft.hintOrientation = global.hint, global.hintSide, global.hintOrientation
+        draft.hintOverride = true
     end
     local function setHint(key, value)
-        if not canEditHints() then return end
-        settings()[key] = value
+        if profileScope then
+            writeProfileHint()[key] = value
+        else
+            if not globalScope and not addon.HasHintOverride(draft) then inheritHint() end
+            settings()[key] = value
+        end
         refreshHints()
         if globalScope then notify(tr("Les changements s’appliquent immédiatement.", "Changes apply immediately.")) end
         refreshPreview()
     end
-    local inherited = check(hintPopup, tr("Remplacer les réglages globaux", "Override global settings"), 16, -77, function(value)
-        if value then
-            local global = addon.GlobalHints()
-            draft.hint, draft.hintSide, draft.hintOrientation = global.hint, global.hintSide, global.hintOrientation
-        end
-        draft.hintOverride = value
+    local inherited = check(ui.hintPane, tr("Remplacer les réglages globaux", "Override global settings"), 16, -77, function(value)
+        if value then inheritHint() else draft.hintOverride = false end
         refreshHints()
         refreshPreview()
     end)
-    local hint = check(hintPopup, tr("Afficher l’onglet", "Show tab"), 16, -108, function(value)
-        if globalScope then
+    local hint = check(ui.hintPane, tr("Afficher l’étiquette", "Show label"), 16, -108, function(value)
+        if globalScope or profileScope then
             setHint("hint", value)
         else
             draft.hintVisible = value
@@ -1101,16 +1188,16 @@ local function buildWindow()
         {"horizontal", tr("Horizontal", "Horizontal")}, {"vertical", tr("Vertical", "Vertical")},
     }
     local function orientationValue() return settings().hintOrientation or "horizontal" end
-    local orientation = menu(hintPopup, 192, -109, 170, function(root)
-        if not hintPopup:IsShown() then return end
+    local orientation = menu(ui.hintPane, 192, -109, 170, function(root)
+        if not ui.hintPane:IsShown() then return end
         for _, choice in ipairs(orientations) do
             radio(root, choice[2], choice[1], orientationValue, function(value)
                 setHint("hintOrientation", value)
             end)
         end
     end)
-    label(hintPopup, tr("Placer l’onglet", "Place tab"), 16, -143)
-    local diagram = hintPopup:CreateTexture(nil, "ARTWORK")
+    label(ui.hintPane, tr("Ancre de l’étiquette", "Label anchor"), 16, -143)
+    local diagram = ui.hintPane:CreateTexture(nil, "ARTWORK")
     diagram:SetPoint("TOPLEFT", 126, -190)
     diagram:SetSize(120, 59)
     diagram:SetColorTexture(0.23, 0.31, 0.40, 1)
@@ -1121,47 +1208,112 @@ local function buildWindow()
         {"bottom-start", 126, -258}, {"bottom", 176, -258}, {"bottom-end", 226, -258},
     }
     for _, marker in ipairs(markers) do
-        marker.control = button(hintPopup, "•", marker[2], marker[3], 20, function()
+        marker.control = button(ui.hintPane, "•", marker[2], marker[3], 20, function()
             setHint("hintSide", marker[1])
         end)
         marker.control:SetHeight(19)
     end
     refreshHints = function()
-        local current, editable = settings(), canEditHints()
-        inherited:SetShown(not globalScope)
-        inherited:SetChecked(not globalScope and editable)
-        if globalScope then
+        local current = settings()
+        inherited:SetShown(not globalScope and not profileScope)
+        inherited:SetChecked(not globalScope and not profileScope and addon.HasHintOverride(draft))
+        if profileScope then
+            hint:SetChecked(current.hint ~= false)
+            hint:SetEnabled(true)
+        elseif globalScope then
             hint:SetChecked(current.hint)
             hint:SetEnabled(true)
         else
             hint:SetChecked(addon.GlobalHints().hint and addon.HintVisibleForFrame(draft))
             hint:SetEnabled(not not addon.GlobalHints().hint)
         end
-        orientation:SetEnabled(editable)
+        orientation:SetEnabled(true)
         orientation:OverrideText(orientationValue() == "vertical" and orientations[2][2] or orientations[1][2])
         local side = current.hintSide or "top-start"
-        if side == "legacy" then side = "top-start" end
+        if not addon.hintAnchors[side] then side = "top-start" end
+        if profileScope then side = addon.ProfileHintAnchor(draft, side) end
         for _, marker in ipairs(markers) do
             marker.control:SetText(side == marker[1] and "●" or "•")
-            marker.control:SetEnabled(editable)
+            marker.control:SetEnabled(not profileScope or addon.ProfileHintAnchor(draft, marker[1]) == marker[1])
+        end
+        if ui.profileDesign then ui.profileDesign(profileScope) end
+    end
+    local function openHints(global, profileLabel)
+        if profileLabel and not editingFrameDefaults and not addon.BarLayout.totemBar(draft) then return end
+        stopFrameCapture()
+        closeActivation()
+        globalScope, profileScope = global, profileLabel
+        framePage = global and "globalHint" or profileLabel and "profileHint" or "frameHint"
+        heading:SetText(global and tr("Étiquettes de cadre globales", "Global frame labels")
+            or profileScope and tr("Étiquette de profil de totems", "Totem profile label")
+            or tr("Étiquette de cadre", "Frame label"))
+        description:SetText(profileScope and tr("Affiche le profil de totems actif. L’ancre de l’étiquette de cadre est réservée.",
+            "Shows the current totem profile. The frame label’s anchor is reserved.")
+            or tr("L’étiquette indique sur quelle touche appuyer pour activer le cadre.",
+                "The label shows which key activates the frame."))
+        refreshHints()
+        ui.form:Hide()
+        ui.hintPane:Show()
+        refresh()
+        if barEditor then barEditor.navigation(true, selected, draft and draft.name) end
+        if profileScope then
+            inactive = true
+            refreshPreview()
         end
     end
-    local function openHints(global)
-        stopFrameCapture()
-        globalScope = global
-        heading:SetText(global and tr("Apprentissage global", "Global learning settings")
-            or tr("Apprentissage du cadre", "Frame learning settings"))
-        refreshHints()
-        hintPopup:Show()
+    local framePageTitles = function()
+        return {
+            target=tr("Rattachement","Attachment"),
+            geometry=editingFrameDefaults and tr("Dimensions","Size") or tr("Position et dimensions","Position and size"),
+            activation=tr("Activation","Activation"), appearance=tr("Apparence","Appearance"),
+            frameHint=tr("Étiquette de cadre","Frame label"), profileHint=tr("Étiquette de profil","Totem profile label"),
+            globalHint=tr("Étiquettes globales","Global frame labels"), transition=tr("Transition","Transition"),
+            display=tr("Niveau d’affichage","Display level"),
+        }
     end
-    button(config, tr("Étiquettes globales", "Global key labels"), 200, -4, 202, function() openHints(true) end)
-    ui.keyLabel = check(ui.appearance, tr("Afficher l’étiquette de touche", "Show key label"), 18, -35, function(value)
+    local function showFrameSection(key, reveal)
+        name:ClearFocus()
+        if key == "frameHint" or key == "profileHint" then
+            openHints(false, key == "profileHint")
+            return
+        end
+        closeHints()
+        framePage = key or "target"
+        refresh()
+        refreshPreview()
+        ui.form:SetVerticalScroll(0)
+        if barEditor then barEditor.navigation(true, selected, draft and draft.name, reveal) end
+    end
+    ui.sections = menu(config, 0, -81, 177, function(root)
+        if not draft then return end
+        local titles = framePageTitles()
+        local model = addon.BarLayout
+        local hasProfile = editingFrameDefaults or model.totemBar(draft)
+        for _, key in ipairs({"target","geometry","activation","appearance","frameHint","transition","display","profileHint"}) do
+            if key~="profileHint" or hasProfile then
+                root:CreateButton(titles[key], function() showFrameSection(key) end)
+            end
+        end
+        if not editingFrameDefaults and selected and model.hasAssignableBars(draft) then
+            root:CreateButton(tr("Assignation des raccourcis","Assign keybindings"), function()
+                leaveDraft(function() selectTabNow(assignment,selected) end)
+            end)
+        end
+    end)
+    ui.sections:ClearAllPoints()
+    ui.sections:SetPoint("TOPRIGHT", -22, -81)
+    ui.sections:SetSize(177, 24)
+    ui.sections:OverrideText(tr("Rubriques", "Sections"))
+    button(config, tr("Étiquettes globales", "Global frame labels"), 200, -4, 202, function() openHints(true) end)
+    ui.keyLabel = check(ui.appearance, tr("Afficher l’étiquette de cadre", "Show frame label"), 18, -35, function(value)
         draft.hintVisible = value
         refreshPreview()
     end)
     ui.updateHint = function() ui.keyLabel:SetChecked(not not addon.HintVisibleForFrame(draft))
         ui.keyLabel:SetEnabled(not not addon.GlobalHints().hint) end
-    button(ui.appearance, tr("Réglages de l’étiquette…", "Key label settings…"), 312, -35, 245, function() openHints(false) end)
+    button(ui.appearance, tr("Étiquette de cadre…", "Frame label…"), 312, -35, 245, function() openHints(false) end)
+    ui.defaultProfileLabel = button(ui.appearance, tr("Étiquette de profil…", "Totem profile label…"),
+        312, -71, 245, function() openHints(false, true) end)
 
     local barGroup = CreateFrame("Frame", nil, ui.target)
     barGroup:SetAllPoints(ui.target)
@@ -1197,6 +1349,13 @@ local function buildWindow()
     ui.moveFrame = button(ui.target, tr("Déplacer en jeu", "Move in game"), 18, -119, 195, function()
         if not editing then setEditing(true) end
     end)
+    local resetMicroPosition = button(ui.target, tr("Position d’origine", "Original position"), 222, -119, 165, function()
+        if InCombatLockdown() then return end
+        draft.microPosition = nil
+        refreshPreview()
+        loadFields()
+        refresh()
+    end)
     local freeGroup = ui.geometry
     local inputs, specifications = {}, {}
     for _, spec in ipairs(fields) do specifications[spec[1]] = spec end
@@ -1228,7 +1387,25 @@ local function buildWindow()
         inputs[#inputs + 1] = control
 
         local function updatePreview(value)
-            resolveStyle(draft, true)[key] = value
+            if draft.kind == "micro" and (key == "x" or key == "y") then
+                if InCombatLockdown() then return end
+                local geometry = draft.microPosition or addon.GetPanelGeometry(draft) or draft
+                draft.microPosition = {x = geometry.x, y = geometry.y}
+                draft.microPosition[key] = value
+                resetMicroPosition:Enable()
+            else
+                if key=="width" or key=="height" then
+                    draft.manualFit = nil
+                    if not editingFrameDefaults then
+                        if draft.kind=="owned" and not addon.BarLayout.autoFitEnabled(draft) and not draft.frameSized then
+                            local displayed = addon.BarLayout.envelope(draft, draft)
+                            draft.width, draft.height = displayed.width, displayed.height
+                        end
+                        draft.frameSized = true
+                    end
+                end
+                resolveStyle(draft, true)[key] = value
+            end
             if isStyle then inactive = not activeStyle end
             if control.refresh then control.refresh() end
             refreshPreview()
@@ -1244,7 +1421,14 @@ local function buildWindow()
             updatePreview(value)
         end)
         function control.load()
-            local value = resolveStyle(draft)[key]
+            local geometry = draft.kind == "micro"
+                and (key == "x" or key == "y" or key == "width" or key == "height")
+            local source = geometry and addon.GetPanelGeometry(draft) or resolveStyle(draft)
+            if not editingFrameDefaults and draft.kind=="owned" and not addon.BarLayout.autoFitEnabled(draft)
+                and (key=="width" or key=="height") then
+                source = addon.BarLayout.envelope(draft, draft)
+            end
+            local value = geometry and draft.microPosition and draft.microPosition[key] or source[key]
             if spec[6] then value = value * spec[6] end
             input:SetText(tostring(value))
             if control.refresh then control.refresh() end
@@ -1252,27 +1436,15 @@ local function buildWindow()
         return control, caption, set, updatePreview
     end
 
-    local geometryInputs = {}
-    for index = 1, 4 do
-        local spec = fields[index]
-        local key, x = spec[1], 18 + (index - 1) * 159
-        local control, _, set = bindNumberOrColor(freeGroup, key, x + 22, -9, 58)
-        geometryInputs[index] = control.input
-        local function step(delta)
-            set(math.max(spec[4], math.min(spec[5], draft[key] + delta)))
-        end
-        button(freeGroup, "−", x, -24, 24, function() step(-1) end)
-        button(freeGroup, "+", x + 88, -24, 24, function() step(1) end)
-        local title = tr(spec[2], spec[3])
-        local copy = menu(freeGroup, x + 118, -24, 24, function(root)
+    local function copyFrameValue(parent, x, y, spec, read, set)
+        local copy = menu(parent, x, y, 24, function(root)
             local found = false
             for sourceIndex, source in ipairs(layout().panels) do
                 if sourceIndex ~= selected then
-                    local geometry = addon.GetPanelGeometry(source)
-                    local value = geometry and geometry[key]
+                    local value = read(source)
                     if value and value >= spec[4] and value <= spec[5] then
                         found = true
-                        root:CreateButton(("%s  ·  %s"):format(source.name, tostring(value)), function() set(value) end)
+                        root:CreateButton(("%s  ·  %g"):format(source.name, value), function() set(value) end)
                     end
                 end
             end
@@ -1285,10 +1457,35 @@ local function buildWindow()
         copyIcon(copy, 5, -5)
         copy:HookScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:SetText(tr("Copier la valeur de %s", "Copy the value of %s"):format(title))
+            GameTooltip:SetText(tr("Copier la valeur de %s", "Copy the value of %s"):format(tr(spec[2], spec[3])))
             GameTooltip:Show()
         end)
         copy:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        return copy
+    end
+
+    local geometryInputs, geometryButtons, geometryLabels = {}, {}, {}
+    for index = 1, 4 do
+        local spec = fields[index]
+        local key, y = spec[1], -10 - (index - 1) * 31
+        local control, caption, set = bindNumberOrColor(freeGroup, key, 210, y + 16, 76)
+        caption:ClearAllPoints()
+        caption:SetPoint("TOPLEFT", freeGroup, "TOPLEFT", 18, y - 5)
+        if index == 1 then caption:SetText(tr("Position sur l’axe X", "X position")) end
+        if index == 2 then caption:SetText(tr("Position sur l’axe Y", "Y position")) end
+        geometryInputs[index] = control.input
+        geometryLabels[index] = caption
+        local function step(delta)
+            local current = parseField(control.input:GetText(), spec) or draft[key]
+            set(math.max(spec[4], math.min(spec[5], current + delta)))
+        end
+        local minus = button(freeGroup, "−", 184, y, 24, function() step(-1) end)
+        local plus = button(freeGroup, "+", 297, y, 24, function() step(1) end)
+        local copy = copyFrameValue(freeGroup, 328, y, spec, function(source)
+            local geometry = addon.GetPanelGeometry(source)
+            return geometry and geometry[key]
+        end, set)
+        geometryButtons[index] = {minus, plus, copy}
     end
 
     local fillStyles = {
@@ -1301,6 +1498,130 @@ local function buildWindow()
         {"gold", tr("Dialogue doré", "Gold dialog")}, {"chat", tr("Bulle de discussion", "Chat bubble")},
         {"wood", tr("Bois", "Wood")}, {"tooltip", tr("Infobulle", "Tooltip")},
     }
+    do
+        local design = CreateFrame("Frame", nil, ui.hintPane)
+        design:SetPoint("TOPLEFT", 375, -42)
+        design:SetSize(270, 272)
+        local activeDesign = false
+        local function styleSlot() return activeDesign and "activeStyle" or "defaultStyle" end
+        local function inheritedStyle()
+            return activeDesign and draft or defaultStyle(draft)
+        end
+        local function currentStyle()
+            return settings()[styleSlot()] or inheritedStyle()
+        end
+        local function setStyle(key, value)
+            local config = writeProfileHint()
+            local slot = styleSlot()
+            if not config[slot] then
+                config[slot] = {}
+                addon.CopyStyle(inheritedStyle(), config[slot])
+            end
+            config[slot][key] = value
+            refreshHints()
+            refreshPreview()
+        end
+        local stateMenu = menu(design, 0, 0, 255, function(root)
+            for _, entry in ipairs({{false, tr("Style par défaut", "Default style")},
+                {true, tr("Style activé", "Activated style")}}) do
+                if not entry[1] or addon.HoldLayer(draft) or addon.PanelToggle(draft) then
+                    radio(root, entry[2], entry[1], function() return activeDesign end, function(value)
+                        activeDesign = value
+                        inactive = not value
+                        refreshHints()
+                        refresh()
+                        refreshPreview()
+                    end)
+                end
+            end
+        end)
+        local overrideStyle = check(design, tr("Personnaliser ce style", "Customize this style"), 0, -30, function(enabled)
+            local config = writeProfileHint()
+            local slot = styleSlot()
+            config[slot] = nil
+            if enabled then
+                config[slot] = {}
+                addon.CopyStyle(inheritedStyle(), config[slot])
+            end
+            refreshHints()
+            refreshPreview()
+        end)
+        local function styleMenu(x, title, key, choices)
+            label(design, title, x, -62)
+            local picker = menu(design, x, -80, 126, function(root)
+                for _, choice in ipairs(choices) do
+                    radio(root, choice[2], choice[1], function() return currentStyle()[key] or "solid" end,
+                        function(value) setStyle(key, value) end)
+                end
+            end)
+            return function(value, enabled)
+                local caption
+                for _, choice in ipairs(choices) do
+                    if choice[1] == (value or "solid") then caption = choice[2] end
+                end
+                picker:OverrideText(caption or choices[1][2])
+                picker:SetEnabled(enabled)
+            end
+        end
+        local fillMenu = styleMenu(0, tr("Texture du fond", "Fill texture"), "fillTexture", fillStyles)
+        local edgeMenu = styleMenu(132, tr("Texture de bordure", "Border texture"), "borderTexture", borderStyles)
+        local function styleField(key, title, x, y, limit, parse, display)
+            local input = field(design, title, x, y, 117, limit)
+            local function commit()
+                local value = parse(input:GetText())
+                input:ClearFocus()
+                if value ~= nil then setStyle(key, value) else refreshHints() end
+            end
+            input:SetScript("OnEnterPressed", commit)
+            return function(value, enabled)
+                if not input:HasFocus() then input:SetText(display(value)) end
+                if enabled then input:Enable() else input:Disable() end
+            end
+        end
+        local function hex(raw) return #raw == 6 and raw:match("^%x+$") and raw:upper() or nil end
+        local function percent(raw)
+            local value = tonumber(raw)
+            if value and value >= 0 and value <= 100 then return value / 100 end
+        end
+        local function showPercent(value) return tostring(math.floor((value or 1) * 100 + .5)) end
+        local fill = styleField("fill", tr("Fond (hex) ↵", "Fill (hex) ↵"), 0, -111, 6, hex, tostring)
+        local border = styleField("border", tr("Bordure (hex) ↵", "Border (hex) ↵"), 132, -111, 6, hex, tostring)
+        local fillAlpha = styleField("fillAlpha", tr("Fond (%) ↵", "Fill (%) ↵"), 0, -159, 3, percent, showPercent)
+        local borderAlpha = styleField("borderAlpha", tr("Bordure (%) ↵", "Border (%) ↵"), 132, -159, 3, percent, showPercent)
+        local fonts = {{"game",tr("Jeu","Game")},{"chat",tr("Discussion","Chat")},{"numbers",tr("Chiffres","Numbers")}}
+        label(design, tr("Police", "Font"), 0, -214)
+        local fontMenu = menu(design, 0, -231, 126, function(root)
+            for _, choice in ipairs(fonts) do
+                radio(root, choice[2], choice[1], function() return settings().font or "game" end,
+                    function(value) setHint("font", value) end)
+            end
+        end)
+        local fontSize = field(design, tr("Taille du texte ↵", "Font size ↵"), 132, -214, 117, 2)
+        fontSize:SetScript("OnEnterPressed", function(self)
+            local value = tonumber(self:GetText())
+            self:ClearFocus()
+            if value and value >= 8 and value <= 32 then setHint("size", value) else refreshHints() end
+        end)
+        ui.profileDesign = function(show)
+            design:SetShown(not not show)
+            if not show then activeDesign = false; return end
+            stateMenu:OverrideText(activeDesign and tr("Style activé", "Activated style")
+                or tr("Style par défaut", "Default style"))
+            local style = currentStyle()
+            local enabled = settings()[styleSlot()] ~= nil
+            overrideStyle:SetChecked(enabled)
+            fillMenu(style.fillTexture, enabled)
+            edgeMenu(style.borderTexture, enabled)
+            fill(style.fill, enabled)
+            border(style.border, enabled)
+            fillAlpha(style.fillAlpha, enabled)
+            borderAlpha(style.borderAlpha, enabled)
+            for _, choice in ipairs(fonts) do
+                if (settings().font or "game") == choice[1] then fontMenu:OverrideText(choice[2]) end
+            end
+            if not fontSize:HasFocus() then fontSize:SetText(tostring(settings().size or 12)) end
+        end
+    end
     local function hexRGB(hex)
         return tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255,
             tonumber(hex:sub(5, 6), 16) / 255
@@ -1310,9 +1631,6 @@ local function buildWindow()
             local panel = CreateFrame("Frame", nil, parent)
             panel:SetSize(301, 184)
             panel:SetPoint("TOPLEFT", x, -48)
-            local background = panel:CreateTexture(nil, "BACKGROUND")
-            background:SetAllPoints()
-            background:SetColorTexture(0.12, 0.18, 0.24, 0.8)
             label(panel, title, 10, -9, "GameFontNormal")
             return panel
         end
@@ -1436,19 +1754,107 @@ local function buildWindow()
     end
 
     local refreshDefaultStyle = styleEditor(ui.default, false)
-    local activeControls = CreateFrame("Frame", nil, ui.styles)
-    activeControls:SetAllPoints(ui.styles)
-    local refreshActiveStyle = styleEditor(activeControls, true)
-    button(ui.default, tr("Aperçu par défaut", "Preview default"), 18, -8, 194, function()
+    local refreshActiveStyle = styleEditor(ui.styles, true)
+    button(ui.default, tr("Aperçu par défaut", "Preview default"), 18, -25, 194, function()
         inactive = true
         refreshPreview()
     end)
-    button(activeControls, tr("Aperçu activé", "Preview activated"), 18, -8, 194, function()
+    button(ui.styles, tr("Aperçu activé", "Preview activated"), 18, -8, 194, function()
         inactive = false
         refreshPreview()
     end)
 
-    bindNumberOrColor(ui.appearance, "padding", 18, -60, 126)
+    do
+        local model = addon.BarLayout
+        local marginRows = {}
+        local function readMargins(panel, geometry)
+            local minimumX, minimumY = model.framePadding(panel)
+            local actualX, actualY
+            if panel.kind=="owned" then actualX, actualY = model.fitMargins(panel, geometry or panel) end
+            return actualX or minimumX, actualY or minimumY, minimumX, minimumY
+        end
+        local function setMargin(index, value, minimum)
+            if not draft or InCombatLockdown() or (index==2 and draft.paddingLinked) then return end
+            local both = draft.paddingLinked
+            local x, y = (both or index==1) and value or nil, (both or index==2) and value or nil
+            if not minimum and not editingFrameDefaults and draft.kind=="owned" and model.resizeToPadding(draft, x, y) then
+                geometryInputs[3]:SetText(("%g"):format(draft.width))
+                geometryInputs[4]:SetText(("%g"):format(draft.height))
+            else
+                if x then draft.paddingX = x end
+                if y then draft.paddingY = y end
+                draft.manualFit = nil
+                if not minimum then draft.frameSized = nil end
+            end
+            refreshPreview()
+            ui.updateFitMargins(draft)
+        end
+        local function marginInput(spec, x, y, width, save)
+            local input = CreateFrame("EditBox", nil, ui.geometry, "InputBoxTemplate")
+            input:SetSize(width, 23)
+            input:SetPoint("TOPLEFT", x + 30, y)
+            input:SetAutoFocus(false)
+            input:SetMaxLetters(9)
+            input:SetScript("OnEnterPressed", function(self)
+                local value = parseField(self:GetText(), spec)
+                self:ClearFocus()
+                if value then save(value) end
+            end)
+            input:SetScript("OnEscapePressed", input.ClearFocus)
+            input:SetScript("OnEditFocusLost", function() ui.updateFitMargins(draft) end)
+            local function step(delta)
+                local value = parseField(input:GetText(), spec)
+                if value then save(math.max(spec[4], math.min(spec[5], value + delta))) end
+            end
+            local minus = button(ui.geometry, "−", x, y, 24, function() step(-1) end)
+            local plus = button(ui.geometry, "+", x + width + 35, y, 24, function() step(1) end)
+            return input, minus, plus
+        end
+        for index, key in ipairs({"paddingX", "paddingY"}) do
+            local spec = specifications[key]
+            local y = -10 - (index + 3) * 31
+            local caption = label(ui.geometry, tr(spec[2], spec[3]), 18, y - 5)
+            local function saveActual(value) setMargin(index, value, false) end
+            local actual, actualMinus, actualPlus = marginInput(spec, 184, y, 76, saveActual)
+            local copy = copyFrameValue(ui.geometry, 328, y, spec, function(source)
+                return math.max(0, (select(index, readMargins(source))))
+            end, saveActual)
+            local minimumCaption = label(ui.geometry, tr("Minimum", "Minimum"), 362, y - 5)
+            local minimum, minimumMinus, minimumPlus = marginInput(spec, 435, y, 64,
+                function(value) setMargin(index, value, true) end)
+            marginRows[index] = {actual=actual, minimum=minimum, caption=caption, minimumCaption=minimumCaption,
+                buttons={actualMinus, actualPlus, copy, minimumMinus, minimumPlus}}
+        end
+        local link = button(ui.geometry, "", 568, -150, 64, function()
+            if not draft or InCombatLockdown() then return end
+            draft.paddingLinked = not draft.paddingLinked
+            ui.updateFitMargins(draft)
+            updateHeading()
+        end)
+        function ui.updateFitMargins(panel, geometry)
+            if not panel then return end
+            local x, y, minX, minY = readMargins(panel, geometry)
+            local values = {x, y}
+            local minimums = {minX, minY}
+            for index, row in ipairs(marginRows) do
+                if not row.actual:HasFocus() then row.actual:SetText(("%.1f"):format(math.max(0, values[index]))) end
+                if not row.minimum:HasFocus() then row.minimum:SetText(("%g"):format(minimums[index])) end
+            end
+            local vertical = marginRows[2]
+            local enabled = not panel.paddingLinked
+            vertical.actual:SetEnabled(enabled)
+            vertical.minimum:SetEnabled(enabled)
+            for _, control in ipairs(vertical.buttons) do control:SetEnabled(enabled) end
+            local r, g, b = 1, .82, 0
+            if not enabled then r, g, b = .58, .58, .58 end
+            vertical.caption:SetTextColor(r, g, b)
+            vertical.minimumCaption:SetTextColor(r, g, b)
+            local textShade = enabled and 1 or .65
+            vertical.actual:SetTextColor(textShade, textShade, textShade)
+            vertical.minimum:SetTextColor(textShade, textShade, textShade)
+            link:SetText(panel.paddingLinked and tr("Délier", "Unlink") or tr("Lier", "Link"))
+        end
+    end
     local _, _, setLevel = bindNumberOrColor(ui.display, "depth", 62, -6, 48)
     local function stepLevel(delta)
         setLevel(math.max(0, math.min(32, draft.depth + delta)))
@@ -1474,11 +1880,13 @@ local function buildWindow()
     transitionHelp:SetJustifyH("LEFT")
     transitionHelp:SetWordWrap(true)
 
-    local function loadFields()
+    loadFields = function()
         for _, control in ipairs(inputs) do control.load() end
     end
 
-    local override = check(ui.styles, tr("Style activé distinct", "Separate activated style"), 300, -8, function(enabled)
+    local override = addon.CreateWorkspaceSwitch(ui.activeStyleToggle, function()
+        if not draft or InCombatLockdown() then return end
+        local enabled = draft.useDefaultStyle
         if enabled and not draft.inactiveStyle then
             draft.inactiveStyle = {}
             addon.CopyStyle(draft, draft.inactiveStyle)
@@ -1493,41 +1901,53 @@ local function buildWindow()
         refresh()
         refreshPreview()
     end)
+    override:SetPoint("TOPLEFT", 18, -5)
+    label(ui.activeStyleToggle, tr("Style activé distinct", "Separate activated style"), 61, -7, "GameFontHighlight")
     name:SetScript("OnTextChanged", function(_, userInput)
         if userInput and draft then
             draft.name = clean(name:GetText())
             refreshPreview()
+            if barEditor and selected then barEditor.navigation(true,selected,draft.name) end
         end
     end)
 
-    local copyStyle = menu(ui.default, 400, -8, 225, function(root)
+    local copyStyle = menu(ui.default, 400, -25, 225, function(root)
         for index, source in ipairs(layout().panels) do
             if index ~= selected then
                 root:CreateButton(source.name, function()
                     inactive = true
-                    addon.CopyStyle(defaultStyle(source), defaultStyle(draft, true))
-                    draft.padding = source.padding or 8
-                    draft.hintVisible = source.hintVisible
-                    draft.hintOverride = source.hintOverride
-                    draft.hint = source.hint
-                    draft.hintOrientation = source.hintOrientation
-                    draft.hintSide = source.hintSide
+                    addon.CopyFrameStyle(source, draft)
+                    pendingBarStyles = {}
+                    local sources = addon.BarLayout.children(source)
+                    for index, target in ipairs(addon.BarLayout.children(draft)) do
+                        if sources[index] then
+                            local preview = addon.BarLayout.inheritBar(layout(), addon.Copy(target))
+                            addon.BarLayout.copyBarStyle(sources[index], preview)
+                            pendingBarStyles[target] = preview
+                        end
+                    end
                     loadFields()
                     refresh()
                     refreshPreview()
+                    if next(pendingBarStyles) then
+                        notify(tr("Aperçu des styles copié. Enregistre le cadre pour conserver la copie.",
+                            "Previewing the copied styles. Save the frame to keep the copy."))
+                    end
                 end)
             end
         end
     end)
     copyIcon(copyStyle, -17, -4)
-    copyStyle:OverrideText(tr("Copier le style de…", "Copy style from…"))
+    copyStyle:OverrideText(tr("Copier le style depuis…", "Copy style from…"))
 
     local function invalidField()
         for _, control in ipairs(inputs) do
             local spec = control.spec
             local key = spec[1]
             local geometry = key == "x" or key == "y" or key == "width" or key == "height"
-            if (not geometry or draft.kind == "free") and control.show()
+            local editable = draft.kind == "free" or draft.kind == "owned"
+                or draft.kind == "micro" and (key == "x" or key == "y")
+            if (not geometry or editable and control.input:IsShown()) and control.show()
                 and parseField(control.input:GetText(), spec) == nil then
                 return spec
             end
@@ -1535,8 +1955,27 @@ local function buildWindow()
     end
 
     local function savePanel(proceed, approvedHold, approvedBinding)
+        if editingFrameDefaults then
+            if InCombatLockdown() then return end
+            local invalid = invalidField()
+            if invalid then
+                notify(tr("Valeur invalide pour ", "Invalid value for ") .. tr(invalid[2], invalid[3]))
+                return
+            end
+            local kind = editingFrameDefaults ~= "global" and editingFrameDefaults or nil
+            local dimensions = addon.BarLayout.previewFrameDimensions(layout(), kind, draft)
+            addon.BarLayout.setFrameDefaults(layout(), kind, addon.BarLayout.frameDefaultsFromDraft(draft))
+            for panel in pairs(dimensions) do panel.frameSized, panel.manualFit = true, nil end
+            addon.RebuildBars()
+            addon.SyncSwitch()
+            addon.Refresh()
+            updateHeading()
+            notify(tr("Propriétés globales des cadres enregistrées.", "Global frame properties saved."))
+            if proceed then proceed() end
+            return
+        end
         local target = draft
-        local value = addon.Copy(draft)
+        local value = addon.BarLayout.inheritFrame(layout(), addon.Copy(draft))
         value.name = clean(name:GetText())
         if value.name == "" then
             notify(tr("Saisis un nom de cadre.", "Enter a frame name."))
@@ -1555,7 +1994,8 @@ local function buildWindow()
         local previous = layout().panels[selected]
         local hold = addon.HoldLayer(value)
         local conflicts, names = {}, {}
-        if hold and hold ~= "unmodified" and (not previous or hold ~= addon.HoldLayer(previous)) then
+        if hold and hold ~= "unmodified" and rawget(value, "layer") ~= nil
+            and (not previous or hold ~= addon.HoldLayer(previous)) then
             for index, panel in ipairs(layout().panels) do
                 if index ~= selected and addon.HoldLayer(panel) == hold then
                     conflicts[#conflicts + 1] = panel
@@ -1575,10 +2015,7 @@ local function buildWindow()
         end
         local oldToggle, toggle = previous and addon.PanelToggle(previous), addon.PanelToggle(value)
         local key = pendingToggleKey
-        if toggle and oldToggle ~= toggle and not key then
-            notify(tr("Assigne un raccourci à la bascule.", "Assign a shortcut to the toggle."))
-            return
-        end
+        -- A frame can be saved before its optional toggle shortcut is assigned.
         if toggle and key ~= nil then
             local ok, reason, owner = addon.AssignPanelToggleKey(value, toggle, key or nil, approvedBinding)
             if not ok then
@@ -1610,7 +2047,16 @@ local function buildWindow()
             if panel.toggleId and not panel.toggleModifier then panel.toggleModifier = hold end
         end
         selected = selected or #layout().panels + 1
+        if value.kind == "micro" and value.microPosition then
+            for _, panel in ipairs(layout().panels) do panel.microPosition = nil end
+        end
         layout().panels[selected] = value
+        if pendingBarStyles then
+            for _, bar in ipairs(addon.BarLayout.children(value)) do
+                if pendingBarStyles[bar] then addon.BarLayout.copyBarStyle(pendingBarStyles[bar], bar) end
+            end
+        end
+        addon.RebuildBars()
         addon.SyncSwitch()
         addon.RememberFrameToggleKeys()
         pick(selected, nil, inactive)
@@ -1623,38 +2069,102 @@ local function buildWindow()
         stopFrameCapture()
         savePanel()
     end)
+    local resetFrame = button(ui.footer, tr("Rétablir l’héritage", "Restore inheritance"), 350, -5, 205, function()
+        if InCombatLockdown() then return end
+        addon.BarLayout.clearFrameOverrides(draft)
+        draft.manualFit, draft.frameSized, draft.autoFitBars = nil, nil, nil
+        loadFields()
+        refresh()
+        refreshPreview()
+    end)
     local remove = button(ui.footer, tr("Supprimer", "Delete"), 225, -5, 115, function()
         local index = selected
-        confirm(tr("Supprimer ce cadre ?", "Delete this frame?"), function()
+        local target = layout().panels[index]
+        if not target then return end
+        local function deleteFrame(withBars)
+            if InCombatLockdown() or layout().panels[index] ~= target then return end
+            local bars = addon.BarLayout.children(target)
+            if withBars then
+                addon.DeleteOwnedBars(bars)
+            else
+                for _, bar in ipairs(bars) do addon.BarLayout.attach(bar, nil) end
+            end
             table.remove(layout().panels, index)
+            addon.RebuildBars()
             addon.SyncSwitch()
             pick(math.min(index, #layout().panels))
             addon.Refresh()
-        end)
+        end
+        if #addon.BarLayout.children(target) == 0 then
+            confirm(tr("Supprimer ce cadre ?", "Delete this frame?"), function() deleteFrame(false) end)
+            return
+        end
+        StaticPopupDialogs.KEYLAYERS_DELETE_FRAME = {
+            text = tr("Supprimer aussi les barres liées à « %s » ?", "Also delete the bars linked to “%s”?"),
+            button1 = tr("Cadre et barres", "Frame and bars"), button2 = CANCEL,
+            button3 = tr("Cadre seul", "Frame only"),
+            timeout = 0, whileDead = true, hideOnEscape = true,
+            OnAccept = function(dialog) dialog:Hide(); deleteFrame(true) end,
+            OnAlt = function(dialog) dialog:Hide(); deleteFrame(false) end,
+        }
+        StaticPopup_Show("KEYLAYERS_DELETE_FRAME", target.name)
     end)
 
     refresh = function()
         local panel = layout().panels[selected]
-        panels:OverrideText(tr("Changer de cadre", "Change frame"))
-        panels:SetEnabled(#layout().panels > 0)
-        ui.form:SetShown(draft ~= nil)
+        ui.form:SetShown(draft ~= nil and not ui.hintPane:IsShown())
         ui.footer:SetShown(draft ~= nil)
         ui.empty:SetShown(draft == nil)
-        if not draft then return end
+        local titles = framePageTitles()
+        ui.categoryTitle:SetText((draft or ui.hintPane:IsShown()) and titles[framePage] or "")
+        ui.sections:SetShown(draft ~= nil)
+        ui.sections:SetPoint("TOPRIGHT", editingFrameDefaults and -22 or -207, -81)
+        if not draft then
+            ui.autoFitFrames:Hide()
+            autoFitLabel:Hide()
+            return
+        end
+        ui.target:SetShown(framePage=="target" and not editingFrameDefaults)
+        ui.templateTarget:SetShown(framePage=="target" and not not editingFrameDefaults)
+        ui.activation:SetShown(framePage=="activation")
+        ui.appearance:SetShown(framePage=="appearance")
+        ui.transition:SetShown(framePage=="transition")
+        ui.display:SetShown(framePage=="display")
+        if editingFrameDefaults then ui.templateDescription:SetText(ui.templateDescriptions[editingFrameDefaults]) end
+        do
+            local model = addon.BarLayout
+            local global = editingFrameDefaults=="owned"
+            local localFrame = not editingFrameDefaults and draft.kind=="owned" and #model.children(draft)>0
+            local enabled = global or localFrame and model.singleFrameBar(draft) ~= nil
+            ui.autoFitFrames:SetShown(global or not not localFrame)
+            autoFitLabel:SetShown(global or not not localFrame)
+            ui.autoFitFrames:SetEnabled(not not enabled)
+            ui.autoFitFrames:SetAlpha(enabled and 1 or .55)
+            autoFitLabel:SetAlpha(enabled and 1 or .55)
+            ui.autoFitFrames:SetActive(global and model.autoFitEnabled() or localFrame and model.autoFitEnabled(draft))
+        end
+        ui.defaultProfileLabel:SetShown(not not editingFrameDefaults)
+        ui.newFrame:SetShown(not editingFrameDefaults)
+        if ui.linked then ui.linked:SetShown(not editingFrameDefaults) end
         refreshDefaultStyle()
         refreshActiveStyle()
-        activeControls:SetShown(not draft.useDefaultStyle)
-        ui.stylesRow.height = draft.useDefaultStyle and 70 or 278
-        override:SetChecked(not draft.useDefaultStyle)
-        copyStyle:SetEnabled(#layout().panels > (selected and 1 or 0))
-        kind:OverrideText(draft.kind == "chat" and chatLabel(draft.chatId) or kinds[draft.kind])
+        ui.styles:SetShown(not draft.useDefaultStyle)
+        override:SetActive(not draft.useDefaultStyle)
+        copyStyle:SetEnabled(not editingFrameDefaults and #layout().panels > (selected and 1 or 0))
+        local unavailable = (draft.kind == "bars" or draft.kind:match("^bartender")) and not addon.BarLayout.available()
+        kind:OverrideText(unavailable and tr("Rattachement indisponible", "Attachment unavailable")
+            or draft.kind == "chat" and chatLabel(draft.chatId) or kinds[draft.kind])
         local hold, toggle = addon.HoldLayer(draft), addon.PanelToggle(draft)
         local key = pendingToggleKey
         if key == nil then key = addon.PanelToggleKey(draft) end
         ui.hold:OverrideText(hold and addon.LayerLabel(hold) or (toggle and modeLabels.none
             or tr("Toujours visible", "Always visible")))
         ui.toggle:OverrideText(toggle and addon.LayerLabel(addon.ToggleModifier(draft)) or modeLabels.none)
-        ui.toggleKey:SetEnabled(toggle ~= nil)
+        ui.toggle:SetEnabled(not editingFrameDefaults)
+        ui.toggleKey:SetEnabled(not editingFrameDefaults and toggle ~= nil)
+        for _, option in ipairs(frameVisibility) do
+            if option[1] == (draft.visibility or "always") then ui.frameVisibility:OverrideText(option[2]); break end
+        end
         if not ui.capturing then
             ui.toggleKey:SetText(key and (GetBindingText and GetBindingText(key) or key)
                 or (toggle and tr("Assigner…", "Assign…") or "—"))
@@ -1667,11 +2177,35 @@ local function buildWindow()
             or tr("Toujours visible : le cadre s’affiche sans déclencheur.",
                 "Always visible: the frame is shown without a trigger."))
         local selectedBars = addon.BarSelection(draft)
+        if unavailable then selectedBars = nil end
         barGroup:SetShown(selectedBars ~= nil)
-        ui.geometryRow.block:SetShown(draft.kind == "free")
-        ui.moveFrame:SetShown(draft.kind == "free")
+        local micro = draft.kind == "micro"
+        local movable = addon.CanMoveFrame(draft)
+        local positioning = not editingFrameDefaults and (not barEditor or not barEditor.isInheritance())
+        ui.geometryRow.block:SetShown(framePage=="geometry")
+        ui.updateFitMargins(draft)
+        ui.moveFrame:SetShown(movable)
+        resetMicroPosition:SetShown(micro)
+        resetMicroPosition:SetEnabled(micro and draft.microPosition ~= nil)
+        for index = 1, 4 do
+            local editable = not micro or index <= 2
+            local visible = movable and (positioning or index > 2)
+            geometryInputs[index]:SetEnabled(editable)
+            geometryInputs[index]:SetShown(visible)
+            geometryLabels[index]:SetShown(visible)
+            for _, control in ipairs(geometryButtons[index]) do
+                control:SetEnabled(editable); control:SetShown(visible)
+            end
+        end
         linkedHelp:SetShown(not selectedBars)
-        linkedHelp:SetText(draft.kind == "free"
+        linkedHelp:SetText(draft.kind=="owned" and draft.bartenderAttachment and #addon.BarLayout.children(draft)==0
+            and tr("Cadre Bartender4 conservé. Ajoute des barres KeyLayers ou rattache-les depuis l’arborescence.",
+                "Bartender4 frame preserved. Add KeyLayers bars or attach them from the tree.")
+            or unavailable and tr("Bartender4 est désactivé. Choisis un autre rattachement.",
+            "Bartender4 is disabled. Choose another attachment.") or micro
+            and tr("Déplace le cadre en jeu ou règle X et Y. Les dimensions suivent le menu d’icônes.",
+                "Move the frame in game or set X and Y. Its size follows the micro menu.")
+            or (draft.kind == "free" or draft.kind == "owned")
             and tr("En édition, glisse le cadre pour le déplacer et sa poignée pour le redimensionner.",
                 "In edit mode, drag the frame to move it and its handle to resize it.")
             or draft.kind == "chat" and tr("Le cadre suit la fenêtre de tchat sélectionnée.",
@@ -1679,7 +2213,7 @@ local function buildWindow()
             or tr("Le cadre suit cet élément lorsqu’il est visible.", "The frame follows this element when it is visible."))
         ui.reflow()
         for id, item in ipairs(barChecks) do
-            item:SetShown(id <= (addon.barCounts[draft.kind] or 0))
+            item:SetShown(not unavailable and id <= (addon.barCounts[draft.kind] or 0))
             item:SetChecked(selectedBars and selectedBars[id])
             local caption = barCaptions[id]
             caption:SetText((addon.BarLabel(draft.kind, id)))
@@ -1693,16 +2227,21 @@ local function buildWindow()
             ui.barSummary:SetText(#names > 0 and tr("Barres sélectionnées : %s", "Selected bars: %s")
                 :format(table.concat(names, ", ")) or tr("Sélectionne au moins une barre.", "Select at least one bar."))
         end
+        remove:SetShown(not editingFrameDefaults)
         remove:SetEnabled(panel ~= nil)
+        resetFrame:SetShown(draft ~= nil)
     end
 
     pick = function(index, initial, keepDefaultTab)
         stopFrameCapture()
+        name:ClearFocus()
+        editingFrameDefaults = nil
         local panel = layout().panels[index]
         if selected ~= index then ui.form:SetVerticalScroll(0) end
-        pendingToggleKey = nil
+        pendingToggleKey, pendingBarStyles = nil, nil
+        framePage = "target"
         selected = panel and index or nil
-        draft = initial or (panel and addon.Copy(panel))
+        draft = initial or (panel and addon.BarLayout.inheritFrame(layout(), addon.Copy(panel)))
         if keepDefaultTab ~= nil then
             inactive = keepDefaultTab
         else
@@ -1717,11 +2256,17 @@ local function buildWindow()
         refresh()
         notify()
         refreshPreview()
+        if barEditor and config:IsShown() then barEditor.navigation(true, selected) end
     end
 
     local function hasPendingChanges()
         if not draft then return false end
-        if not selected or pendingToggleKey ~= nil or not sameSettings(draft, layout().panels[selected]) then return true end
+        if editingFrameDefaults then
+            local kind = editingFrameDefaults ~= "global" and editingFrameDefaults or nil
+            return not sameSettings(addon.BarLayout.frameDefaultsFromDraft(draft), addon.BarLayout.frameDefaults(layout(), kind))
+                or invalidField() ~= nil
+        end
+        if not selected or pendingToggleKey ~= nil or (pendingBarStyles and next(pendingBarStyles)) or not sameSettings(draft, layout().panels[selected]) then return true end
         return invalidField() ~= nil
     end
 
@@ -1737,40 +2282,58 @@ local function buildWindow()
                 local toggleText = tr("Bascule", "Toggle")
                 mode = hold and (mode .. " + " .. toggleText) or toggleText
             end
-            details = (draft.kind == "chat" and chatLabel(draft.chatId) or kinds[draft.kind] or "") .. "  ·  " .. mode
+            details = editingFrameDefaults and tr("Styles hérités", "Inherited styles")
+                or (draft.kind == "chat" and chatLabel(draft.chatId) or kinds[draft.kind] or "") .. "  ·  " .. mode
         end
         currentDetails:SetText(details)
-        draftStatus:SetText(draft and (not saved and tr("Nouveau cadre non enregistré", "Unsaved new frame")
+        rename:ClearAllPoints()
+        rename:SetPoint("TOPLEFT", 26 + math.min(325, currentName:GetStringWidth()), -54)
+        rename:SetShown(draft ~= nil and not editingFrameDefaults and not name:IsShown())
+        draftStatus:SetText(draft and (not saved and not editingFrameDefaults and tr("Nouveau cadre non enregistré", "Unsaved new frame")
             or hasPendingChanges() and tr("Modifications non enregistrées", "Unsaved changes")) or "")
     end
 
     leaveDraft = function(proceed)
         stopFrameCapture()
-        if not hasPendingChanges() then proceed(); return end
+        if not config:IsShown() or not hasPendingChanges() then proceed(); return end
         StaticPopupDialogs.KEYLAYERS_UNSAVED_FRAME = {
             text = "%s", button1 = tr("Enregistrer", "Save"), button2 = CANCEL, button3 = tr("Ignorer", "Discard"),
             timeout = 0, whileDead = true, hideOnEscape = true,
-            OnAccept = function(_, action) action.save() end,
-            OnAlt = function(_, action) action.discard() end,
+            OnAccept = function(dialog, action) dialog:Hide(); action.save() end,
+            OnAlt = function(dialog, action) dialog:Hide(); action.discard() end,
         }
         local saved = layout().panels[selected]
-        local title = saved and saved.name or (draft.name ~= "" and draft.name or tr("Nouveau cadre", "New frame"))
+        local title = draft.name ~= "" and draft.name or (saved and saved.name or tr("Nouveau cadre", "New frame"))
         local target = draft
         StaticPopup_Show("KEYLAYERS_UNSAVED_FRAME",
             tr("Enregistrer les modifications de « %s » ?", "Save changes to “%s”?"):format(title), nil, {
                 save = function() if draft == target then savePanel(proceed) end end,
                 discard = function()
                     if draft ~= target then return end
-                    pick(selected)
+                    if editingFrameDefaults then
+                        draft = nil
+                        editingFrameDefaults = nil
+                    else pick(selected) end
                     proceed()
                 end,
             })
     end
 
     requestPick = function(index)
-        if index == (selected or 0) then return draft end
-        leaveDraft(function() pick(index) end)
-        if selected == index then return draft end
+        if InCombatLockdown() then return end
+        local function isCurrent()
+            return config:IsShown() and not editingFrameDefaults and index == (selected or 0) and draft
+        end
+        local function show()
+            if not config:IsShown() then selectTabNow(config) end
+            if not isCurrent() then pick(index) end
+            if addon.CanMoveFrame(draft) then
+                barEditor.showContainers()
+                showFrameSection("geometry", true)
+            end
+        end
+        if isCurrent() then show() else leaveDraft(show) end
+        return isCurrent()
     end
     local function requestClose()
         leaveDraft(function() window:Hide() end)
@@ -1785,13 +2348,39 @@ local function buildWindow()
     end)
     table.insert(UISpecialFrames, escape:GetName())
 
+    local function clampGeometry(index, value)
+        local spec = fields[index]
+        return math.max(spec[4], math.min(spec[5], math.floor(value + .5)))
+    end
+
+    local function previewGeometry(index, geometry)
+        if not geometry or InCombatLockdown() or not config:IsVisible() or framePage ~= "geometry"
+            or not draft or index ~= (selected or 0) then return end
+        geometry.paddingX, geometry.paddingY = addon.BarLayout.framePadding(draft)
+        ui.updateFitMargins(draft, geometry)
+        local values = {geometry.x, geometry.y, geometry.width, geometry.height}
+        local fieldCount = draft.kind == "micro" and 2 or 4
+        for i = 1, fieldCount do
+            local text = tostring(clampGeometry(i, values[i]))
+            if geometryInputs[i]:GetText() ~= text then geometryInputs[i]:SetText(text) end
+        end
+    end
+
     local function applyGeometry(x, y, width, height)
+        if draft.kind == "micro" then
+            x, y = clampGeometry(1, x), clampGeometry(2, y)
+            draft.microPosition = {x = x, y = y}
+            geometryInputs[1]:SetText(tostring(x))
+            geometryInputs[2]:SetText(tostring(y))
+            resetMicroPosition:Enable()
+            refreshPreview()
+            return
+        end
         local values = {x, y, width, height}
         for index, input in ipairs(geometryInputs) do
             local spec = fields[index]
-            local value = math.floor(values[index] + 0.5)
-            value = math.max(spec[4], math.min(spec[5], value))
-            draft[spec[1]] = value
+            local value = index > 2 and draft.manualFit and values[index] or clampGeometry(index, values[index])
+            if draft[spec[1]] ~= value then draft[spec[1]] = value end
             input:SetText(tostring(value))
         end
         refreshPreview()
@@ -1804,8 +2393,9 @@ local function buildWindow()
         end
         editing = value
         addon.SetGameplayHotkeysSuspended(value)
+        if barsPage:IsShown() and barEditor then barEditor.refresh() end
         if not value and keybinds then keybinds:Hide() end
-        editToggle:SetText(value and tr("Quitter l’édition", "Exit edit mode") or tr("Mode Édition", "Edit mode"))
+        editToggle:SetActive(value)
         if value then
             if not placedForEditing then
                 window:ClearAllPoints()
@@ -1813,9 +2403,47 @@ local function buildWindow()
                 placedForEditing = true
             end
             addon.SetEditor({
-                current = function() return selected, draft end,
+                current = function()
+                    if config:IsShown() and not editingFrameDefaults then return selected, draft end
+                end,
                 name = function() return clean(name:GetText()) end,
+                previewAppearance = function()
+                    return config:IsShown() and framePage=="appearance", ui.frameStylePreviews, inactive
+                end,
                 geometry = applyGeometry,
+                previewGeometry = previewGeometry,
+                dragPanel = function(index)
+                    if config:IsShown() and index == (selected or 0) then return draft end
+                    return layout().panels[index]
+                end,
+                commitGeometry = function(index, x, y, width, height, resize)
+                    if InCombatLockdown() then return end
+                    local values = {x, y, width, height}
+                    local saved = layout().panels[index]
+                    if saved and saved.kind == "micro" then
+                        for _, panel in ipairs(layout().panels) do panel.microPosition = nil end
+                        saved.microPosition = {
+                            x = clampGeometry(1, x),
+                            y = clampGeometry(2, y),
+                        }
+                    elseif saved then
+                        if resize then saved.manualFit = nil; saved.frameSized = true end
+                        for i = 1, 4 do
+                            local spec = fields[i]
+                            local value = i > 2 and saved.manualFit and values[i] or clampGeometry(i, values[i])
+                            if saved[spec[1]] ~= value then saved[spec[1]] = value end
+                        end
+                    end
+                    if config:IsShown() and draft and index == (selected or 0) then
+                        if resize then draft.manualFit = nil; draft.frameSized = true end
+                        applyGeometry(x, y, width, height)
+                    end
+                    addon.RebuildBars()
+                    addon.Refresh()
+                end,
+                bars = function(index)
+                    leaveDraft(function() selectTabNow(barsPage); barEditor.open(index,nil) end)
+                end,
                 toggleBar = function(kind, id)
                     if not draft or not addon.barCounts[draft.kind] then return end
                     draft.kind = kind
@@ -1824,9 +2452,7 @@ local function buildWindow()
                     refresh()
                     refreshPreview()
                 end,
-                select = function(index)
-                    return requestPick(index)
-                end,
+                select = requestPick,
             })
             notify(tr("Clique sur un cadre pour afficher ses réglages.", "Click a frame to show its settings."))
         else
@@ -1841,7 +2467,7 @@ local function buildWindow()
         stopFrameCapture()
         cancelShortcutCapture()
         if editing then setEditing(false) end
-        if assignment:IsShown() then selectTabNow(config) end
+        if assignment:IsShown() or barsPage:IsShown() then selectTabNow(config) end
     end)
 
     local profileName = field(profiles, tr("Nom du profil", "Profile name"), 18, -13, 242)
@@ -1898,10 +2524,13 @@ local function buildWindow()
             minimapSettings(KeyLayersCharLayout, previousMinimap)
             KeyLayersCharLayout.neutralKey = nil
             addon.MigrateActivation(layout())
+            addon.BarLayout.syncProvider(layout())
             addon.SyncSwitch(true)
             addon.RestoreFrameToggleKeys()
             local restored = snapshot.neutralKey == nil or addon.AssignNeutralKey(snapshot.neutralKey)
             if addon.PositionMinimapIcon then addon.PositionMinimapIcon() end
+            addon.RebuildBars()
+            barEditor.open(nil,nil)
             pick(1)
             addon.Refresh()
             notify(restored and tr("Profil chargé.", "Profile loaded.")
@@ -1909,8 +2538,86 @@ local function buildWindow()
                     "Profile loaded. The current neutral key was kept because the profile key could not be assigned."))
         end)
     end)
+    barEditor = addon.CreateBarEditor(barsPage, {label=label, button=button, menu=menu, radio=radio, check=check, field=field, confirm=confirm}, {
+        editing=function() return editing end,
+        startEditing=function() setEditing(true) end,
+        parent=window, global=ui.globalPage, placeNew=placeNew,
+        openGlobal=function(section)
+            local function show()
+                barEditor.openGlobalSection(section)
+                if not ui.globalPage:IsShown() then selectTabNow(ui.globalPage) end
+            end
+            if ui.globalPage:IsShown() then show() else leaveDraft(show) end
+        end,
+        isGlobal=function() return ui.globalPage:IsShown() end,
+        viewChanged=function()
+            if config:IsShown() then refresh(); refreshPreview() end
+            if barsPage:IsShown() then barEditor.refresh()
+            else barEditor.navigation(true, config:IsShown() and selected or assignedFrame) end
+        end,
+        openFrameDefaults=function(kind, section)
+            local scope = kind or "global"
+            local function show()
+                selectTabNow(config)
+                editingFrameDefaults, selected = scope, nil
+                draft = addon.BarLayout.frameDefaultsDraft(layout(), kind)
+                draft.kind, draft.x, draft.y = "free", 0, 0
+                local titles = {free=tr("Cadre libre", "Free frame"), owned=tr("Cadre KeyLayers", "KeyLayers frame"),
+                    blizzard=tr("Cadre Blizzard", "Blizzard frame")}
+                draft.name = titles[kind] or tr("Propriétés globales des conteneurs", "Global container properties")
+                name:SetText(draft.name)
+                inactive = true
+                pendingToggleKey, pendingBarStyles = nil, nil
+                ui.form:SetVerticalScroll(0)
+                loadFields()
+                refresh()
+                refreshPreview()
+                barEditor.navigation(true)
+                showFrameSection(section or "target")
+            end
+            if config:IsShown() and editingFrameDefaults == scope then
+                showFrameSection(section or "target")
+            else
+                leaveDraft(show)
+            end
+        end,
+        bindingFrame=function() return assignedFrame end,
+        openBindings=function(index) leaveDraft(function() selectTabNow(assignment,index) end) end,
+        newFrame=newFrame,
+        isFrame=function() return config:IsShown() end,
+        frameTemplate=function() return config:IsShown() and editingFrameDefaults or nil, framePage end,
+        frameSection=function(index) return config:IsShown() and index==selected and framePage or nil end,
+        openBar=function(index,id,after)
+            leaveDraft(function()
+                selectTabNow(barsPage)
+                if barsPage:IsShown() then barEditor.open(index,id); if after then after() end end
+            end)
+        end,
+        openFrame=function(index,section)
+            local function show()
+                if not config:IsShown() then selectTabNow(config) end
+                if selected ~= index or not draft then pick(index) end
+                if barEditor then barEditor.navigation(true,selected,draft and draft.name) end
+                showFrameSection(section)
+            end
+            if config:IsShown() and selected==index then show() else leaveDraft(show) end
+        end,
+    })
+    ui.linked = button(config, tr("Gérer des barres", "Manage bars"), 0, -81, 177, function()
+        local function manage()
+            selectTabNow(barsPage)
+            if barsPage:IsShown() then barEditor.openFrameBars(selected) end
+        end
+        local frame = selected and layout().panels[selected]
+        if draft and (not frame or draft.kind~=frame.kind) then
+            savePanel(manage)
+        else leaveDraft(manage) end
+    end)
+    ui.linked:ClearAllPoints()
+    ui.linked:SetPoint("TOPRIGHT", -22, -81)
     refreshProfiles()
-    pick(1)
+    selectTabNow(ui.globalPage)
+    pick(nil)
     window:SetScript("OnShow", function()
         escape:Show()
         refreshPreview()
@@ -1918,10 +2625,11 @@ local function buildWindow()
     window:SetScript("OnHide", function()
         escape:Hide()
         stopFrameCapture()
-        if assignment:IsShown() then selectTabNow(config) end
+        if assignment:IsShown() or barsPage:IsShown() then selectTabNow(config) end
         closeHints()
         closeActivation()
         if editing then setEditing(false) end
+        addon.SetDraftBarStyles(nil)
         addon.SetDraftPreview(nil, nil)
     end)
     return window, requestClose

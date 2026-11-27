@@ -84,6 +84,46 @@ end
 local gold = {1, 0.76, 0.28, 0.98}
 local green = {0.29, 0.95, 0.41, 0.98}
 
+local barMarker, outlinedBar
+function addon.ClearBarOutline(frame)
+    if not frame or outlinedBar == frame then
+        outlinedBar = nil
+        if barMarker then barMarker:Hide() end
+    end
+end
+
+function addon.ShowBarOutline(frame)
+    if not frame or not frame:IsVisible() then
+        addon.ClearBarOutline()
+        return
+    end
+    local x,y,w,h=frame:GetRect()
+    if not x then return end
+    local scale=frame:GetEffectiveScale()/root:GetEffectiveScale()
+    if not barMarker then barMarker=makeMarker(gold) end
+    outlinedBar = frame
+    placeMarker(barMarker,x*scale,y*scale,w*scale,h*scale)
+end
+
+local dropMarker
+function addon.UpdateBarDropPreview(bar,panel,creates)
+    if creates and bar then
+        local x,y=addon.BarLayout.position(bar)
+        local w,h=addon.BarLayout.size(bar)
+        if not dropMarker then dropMarker=makeMarker(green) end
+        placeMarker(dropMarker,(root:GetWidth()-w)/2+x-8,(root:GetHeight()-h)/2+y-8,w+16,h+16)
+        return
+    end
+    if not bar or not panel then if dropMarker then dropMarker:Hide() end; return end
+    if not addon.GetPanelGeometry(panel) then return end
+    local w,h=addon.BarLayout.size(bar)
+    if not dropMarker then dropMarker=makeMarker(green) end
+    local x,y=addon.BarLayout.attachmentPosition(bar,panel)
+    if not x then dropMarker:Hide(); return end
+    placeMarker(dropMarker,(root:GetWidth()-w)/2+x,(root:GetHeight()-h)/2+y,w,h)
+    return x,y
+end
+
 function addon.UpdateDraftOutline(left, bottom, width, height)
     if not left then
         if selection then selection:Hide() end
@@ -111,34 +151,80 @@ function addon.DrawBindingOutlines(sources, targets, bounds, scale)
     placeGroup(bindingTargets, targets, green)
 end
 
-local function finishDrag()
-    if not drag then return end
-    drag.owner:SetScript("OnUpdate", nil)
+local function finishDrag(owner)
+    if not drag or (owner and drag.owner~=owner) then return end
+    local completed = drag
     drag = nil
+    completed.owner:SetScript("OnUpdate", nil)
+    if completed.commit and completed.values then completed.commit(completed.index, completed.values[1], completed.values[2],
+        completed.values[3], completed.values[4], completed.resize) end
 end
 
-local function beginDrag(owner, resize, index)
+function addon.DraggedFrame()
+    return drag and KeyLayersCharLayout.panels[drag.index]
+end
+
+function addon.MovingFrameGeometry(panel)
+    if not drag or not drag.values then return end
+    local index, draft = editor.current()
+    local source = (index or 0)==drag.index and draft or KeyLayersCharLayout.panels[drag.index]
+    if panel ~= source and panel ~= KeyLayersCharLayout.panels[drag.index] then return end
+    local x,y,width,height = unpack(drag.values)
+    return {x=x,y=y,width=width,height=height,manualFit=not drag.resize and source and source.manualFit or nil,
+        frameSized=drag.resize or source and source.frameSized}
+end
+
+function addon.CanMoveFrame(panel)
+    return panel and (panel.kind == "free" or panel.kind == "owned" or panel.kind == "micro")
+end
+
+local function beginDrag(owner, resize, index, selectFrame)
     if not editor then return end
-    local panel = editor.select(index)
-    if not panel or panel.kind ~= "free" then return end
+    if InCombatLockdown() then return end
     finishDrag()
+    local panel
+    if selectFrame then
+        panel = editor.select(index)
+    else
+        panel = editor.dragPanel(index)
+    end
+    if not addon.CanMoveFrame(panel) or (panel.kind == "micro" and resize) then return end
+    local geometry = addon.GetPanelGeometry(panel)
+    if not geometry then return end
     local startX, startY = GetCursorPosition()
     local scale = root:GetEffectiveScale()
-    local x, y, width, height = panel.x, panel.y, panel.width, panel.height
-    drag = {owner = owner}
+    local x, y, width, height = geometry.x, geometry.y, geometry.width, geometry.height
+    if resize and panel.kind=="owned" and not addon.BarLayout.autoFitEnabled(panel) then
+        local displayed = addon.BarLayout.envelope(panel, geometry)
+        width, height = displayed.width, displayed.height
+    end
+    drag = {owner = owner, index = index, resize = resize, commit = editor.commitGeometry}
     owner:SetScript("OnUpdate", function()
         local cursorX, cursorY = GetCursorPosition()
         local dx, dy = (cursorX - startX) / scale, (cursorY - startY) / scale
         if resize then
             local newWidth = math.max(24, math.min(10000, width + dx))
             local newHeight = math.max(24, math.min(10000, height - dy))
-            editor.geometry(x + (newWidth - width) / 2, y - (newHeight - height) / 2,
-                newWidth, newHeight)
+            drag.values = {x + (newWidth - width) / 2, y - (newHeight - height) / 2, newWidth, newHeight}
         else
-            editor.geometry(x + dx, y + dy, width, height)
+            drag.values = {x + dx, y + dy, width, height}
         end
+        if drag.commit then
+            if editor.previewGeometry then editor.previewGeometry(index, addon.MovingFrameGeometry(panel)) end
+        else
+            editor.geometry(unpack(drag.values))
+        end
+        if addon.UpdateOwnedFramePositions then addon.UpdateOwnedFramePositions() end
+        addon.Refresh()
     end)
+    return true
 end
+
+function addon.BeginAttachedBarDrag(owner,index)
+    return beginDrag(owner,false,index)
+end
+
+addon.FinishAttachedBarDrag=finishDrag
 
 local function makeOverlay()
     local frame = CreateFrame("Button", nil, root)
@@ -150,11 +236,22 @@ local function makeOverlay()
     outline:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 3, -3)
     outline:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2})
     frame.outline = outline
+    local highlight = CreateFrame("Frame", nil, frame)
+    highlight:SetAllPoints(frame)
+    highlight:EnableMouse(false)
+    local tint = highlight:CreateTexture(nil, "OVERLAY")
+    tint:SetAllPoints()
+    tint:SetColorTexture(.74, .58, .95, 1)
+    frame.moveHighlight = highlight
     frame:EnableMouse(true)
-    frame:RegisterForClicks("LeftButtonUp")
+    frame:RegisterForClicks("LeftButtonUp","RightButtonUp")
     frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnClick", function(self) editor.select(self.index) end)
-    frame:SetScript("OnDragStart", function(self) beginDrag(self, false, self.index) end)
+    frame:SetScript("OnClick", function(self,button)
+        if not editor or InCombatLockdown() then return end
+        if button=="RightButton" and self.index>0 and editor.bars then editor.bars(self.index)
+        else editor.select(self.index) end
+    end)
+    frame:SetScript("OnDragStart", function(self) beginDrag(self, false, self.index, true) end)
     frame:SetScript("OnDragStop", finishDrag)
     frame:SetScript("OnHide", function(self)
         if drag and (drag.owner == self or drag.owner == self.handle) then finishDrag() end
@@ -171,7 +268,8 @@ local function makeOverlay()
     handle:RegisterForDrag("LeftButton")
     handle:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
     handle:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
-    handle:SetScript("OnDragStart", function(self) beginDrag(self, true, frame.index) end)
+    handle:SetScript("OnClick", function() if editor then editor.select(frame.index) end end)
+    handle:SetScript("OnDragStart", function(self) beginDrag(self, true, frame.index, true) end)
     handle:SetScript("OnDragStop", finishDrag)
     frame.handle = handle
     return frame
@@ -222,6 +320,8 @@ end
 function addon.UpdateEditOverlays(bounds, boundsForBar, layout, scale)
     if not editor then return end
     local selected, draft = editor.current()
+    local appearance, previews, inactive
+    if editor.previewAppearance then appearance, previews, inactive = editor.previewAppearance() end
     if draft and addon.barCounts[draft.kind] then
         updateBarNumbers(boundsForBar, scale, draft)
     else
@@ -230,6 +330,11 @@ function addon.UpdateEditOverlays(bounds, boundsForBar, layout, scale)
     wipe(placed)
     local function place(index, panel, active)
         local left, bottom, width, height = bounds(panel, scale)
+        if drag and drag.index == index and drag.values and panel.kind=="free" then
+            local x, y
+            x, y, width, height = unpack(drag.values)
+            left, bottom = (root:GetWidth() - width)/2 + x, (root:GetHeight() - height)/2 + y
+        end
         if left then
             placed[#placed + 1] = {index = index, panel = panel, active = active,
                 left = left, bottom = bottom, width = width, height = height, area = width * height}
@@ -271,9 +376,10 @@ function addon.UpdateEditOverlays(bounds, boundsForBar, layout, scale)
             frame:SetFrameLevel(level)
             frame.paint:SetFrameLevel(level + 1)
             frame.borderPaint:SetFrameLevel(level + 1)
-            frame.outline:SetFrameLevel(level + 2)
-            frame.handle:SetFrameLevel(level + 3)
-            frame.tab:SetFrameLevel(level + 3)
+            frame.moveHighlight:SetFrameLevel(level + 2)
+            frame.outline:SetFrameLevel(level + 3)
+            frame.handle:SetFrameLevel(level + 4)
+            frame.tab:SetFrameLevel(level + 4)
             frame.drawLevel = level
         end
         if frame.active ~= active then
@@ -282,15 +388,34 @@ function addon.UpdateEditOverlays(bounds, boundsForBar, layout, scale)
             frame.active = active
         end
         addon.SetMapAwareStrata(frame, "HIGH")
-        if active then addon.PaintStyle(frame, addon.EditStyle(panel)) end
-        frame.paint:SetShown(active)
-        local showHint = active and addon.HasHint(panel)
+        local hasTotems = addon.BarLayout and addon.BarLayout.totemBar(panel)
+        local preview = previews and previews[panel]
+        local paintStrata = (hasTotems or preview or active and appearance) and "LOW" or frame:GetFrameStrata()
+        if frame.paint:GetFrameStrata() ~= paintStrata then frame.paint:SetFrameStrata(paintStrata) end
+        local movable = addon.CanMoveFrame(panel)
+        frame.moveHighlight:SetShown(movable and not appearance)
+        if movable then frame.moveHighlight:SetAlpha(active and .48 or .36) end
+        local style, hintActive
+        if preview then
+            style = inactive and addon.DefaultFrameStyle(preview) or preview
+            hintActive = not inactive
+        elseif active then
+            style, hintActive = addon.EditStyle(panel)
+        end
+        local showStyle = preview ~= nil or active and (appearance or not movable)
+        if showStyle then addon.PaintStyle(frame, style) end
+        frame.paint:SetShown(showStyle)
+        local showHint = style ~= nil and addon.HasHint(preview or panel)
         if showHint then
-            addon.LayoutHint(frame, panel)
-            local style, hintActive = addon.EditStyle(panel)
+            addon.LayoutHint(frame, preview or panel)
             addon.TintHint(frame.tab, style, hintActive)
         end
         frame.tab:SetShown(showHint)
+        if style then
+            addon.UpdateProfileHint(frame, preview or panel, style, hintActive)
+        elseif frame.profileTab then
+            frame.profileTab:Hide()
+        end
         local name = active and editor.name() or panel.name
         local linked = ""
         if panel.kind == "chat" then
@@ -301,10 +426,10 @@ function addon.UpdateEditOverlays(bounds, boundsForBar, layout, scale)
             linked = " · " .. addon.kindLabels[panel.kind]
         end
         frame.caption:SetText(name .. linked)
-        frame.handle:SetShown(panel.kind == "free" and active)
+        frame.handle:SetShown((panel.kind == "free" or panel.kind == "owned") and active)
         frame:Show()
     end
-    for order, item in ipairs(placed) do show(item, 14 + order * 4) end
+    for order, item in ipairs(placed) do show(item, 14 + order * 5) end
     for index, frame in pairs(overlays) do
         if index > #layout.panels then frame:Hide() end
     end
@@ -322,5 +447,10 @@ end
 function addon.IsEditingPanel(panel)
     if not editor then return false end
     local _, draft = editor.current()
-    return draft == panel
+    if draft == panel then return true end
+    if editor.previewAppearance then
+        local appearance, previews = editor.previewAppearance()
+        return appearance and previews and previews[panel] ~= nil
+    end
+    return false
 end

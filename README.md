@@ -1,8 +1,15 @@
-# KeyLayers by Rav Yoli 1.1.33b
+# KeyLayers by Rav Yoli 2.1.11b
 
-**KeyLayers** is a keyboard-first addon for **WoW Forever**. It organizes your keybinds into layers and highlights the action bars for the layer you’re using.
+**KeyLayers is a standalone action bar manager for WoW Forever**, built around keyboard shortcuts, keypads, and the way you actually play. Switch between layers like **Base**, **Shift**, and **Ctrl** to put more actions under the same keys.
 
-I designed and tuned KeyLayers to work smoothly with **Bartender4**, and it also works with WoW’s built-in interface on its own. Link a frame to one or more action bars or another supported UI element, and its background and border automatically fit and follow that element.
+## What’s new in 2.1.11b
+
+- **Build the bars you want.** Create up to **12 KeyLayers bars**, with up to **36 buttons per action bar**. Put all 36 buttons on one bar and arrange them across rows and columns. KeyLayers handles its own bars, with Blizzard and **Bartender4** available as optional providers.
+- **Organize your UI in two views.** In **Containers**, see which bars belong to each frame and move them with drag-and-drop. In **Inherited styles**, set defaults for all frames or all bars, then refine them by type or override them on individual frames and bars.
+- **Switch totems mid-play.** Save shaman totem profiles and open a vertical carousel from an element button. Hold the bound key and scroll without moving the pointer to the bar, or open the carousel with a right-click. Tap the bound key to cast the selected totem.
+- **Configure and edit in place.** Browse dedicated settings pages, assign shortcuts by hovering or with the binding assistant, and see live coordinates, padding, and appearance previews in Edit mode. Auto fit adapts a single bar to its frame. Frames containing several bars resize live as you move a bar.
+
+See the [2.1.11b release notes](docs/releases/v2.1.11b.md).
 
 ![KeyLayers highlights the Base, Shift, and Ctrl action bars as you switch layers](docs/images/keylayers-layer-showcase.png)
 
@@ -22,7 +29,7 @@ KeyLayers grew out of my earlier project, **BMF Modifier Glow**. Thanks to **Dar
 
 The project was originally called **BartenderGlow** and started as a way to decorate Bartender4 action bars with custom backgrounds and borders. It has since grown into **KeyLayers**, a standalone addon that also works with WoW’s built-in action bars. Bartender4 is an optional integration. KeyLayers automatically migrates settings saved under the old `BartenderGlow` names.
 
-KeyLayers was built with **GPT‑6.2**. My role as **Rav Yoli** was to define the product vision. It took about two days to pin down what I wanted and refine the prompts, plus lots of in-game testing to get to this version.
+Development was assisted by AI.
 
 ## Supported languages
 
@@ -63,17 +70,16 @@ Open **Frame type** and choose the element you want to style. For example, selec
 
 ## Your first frame
 
-1. Open **Settings** and click **New frame**.
-2. Pick **Bartender4** or **Blizzard bars**, then select the action bars you want to frame. Try bars 4 and 5.
-3. Open **Activation** and choose **Hold** with **Shift** as the key. Click **Save frame**.
-4. Use **Learning tab** to show the **Shift** label even when the frame is inactive.
-5. Move or resize one of the linked bars. The frame follows its visible buttons. If all linked bars are hidden, the frame hides too.
+1. Open **Frames and bars → Frames** and choose **New frame**.
+2. In **Attachment**, choose **KeyLayers bars**. KeyLayers creates a first action bar and fits it inside the frame.
+3. Open **Manage bars** to configure that bar or add another. With **Fit to frame dimensions** enabled, resizing the frame adds or removes slots based on the available space and the frame’s padding. Turn **Auto fit** off in the frame or bar header to keep the current grid and edit it manually.
+4. In the frame’s **Activation** page, choose **Hold** with **Shift** to highlight it while holding Shift. Use **Frame label** if you want the layer name beside the frame.
 
 Choose **Free frame** for a standalone backdrop. **X** and **Y** are offsets from the center of the screen. A frame with **None** as its trigger stays visible. Colors use hex codes, opacity uses percentages, and durations are in seconds.
 
 ## Edit mode
 
-Click **Edit mode** to show your frames on screen. Click a frame to open its settings in the same window. **New frame** opens Edit mode with a free frame. Drag it to move it, or drag the handle in the bottom-right corner to resize it. The position and size fields update as you go.
+Click **Edit mode** to show your frames on screen. Click a frame to open its settings in the same window. **New frame** opens Edit mode with a free frame. Drag it to move it, or drag the handle in the bottom-right corner to resize it. The geometry fields update as you drag, and the final position and size are saved on release.
 
 **Fill texture** and **Border texture** use WoW’s built-in artwork. Try **Marble** or **Parchment** for the fill and **Gold dialog** or **Chat bubble** for the border. The selected frame previews your changes as you make them while **Settings** is open, even outside Edit mode. Closing the window or switching to **Profiles** ends the preview. Click **Save frame** to apply your changes before selecting another frame.
 

@@ -1,14 +1,14 @@
 local addonName, addon = ...
 addon.title = "KeyLayers by Rav Yoli"
 local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-addon.version = getMetadata and getMetadata(addonName, "Version") or "1.1.33b"
+addon.version = getMetadata and getMetadata(addonName, "Version") or "2.1.11b"
 -- ProfileSync scans globals before our ADDON_LOADED handler and recognizes
 -- character data by name. Keep this a plain, character-scoped saved table.
 local emptyCharacterLayout = {panels = {}, mode = "hold", learning = false}
 KeyLayersCharLayout = KeyLayersCharLayout or KeyLayersLayout or BartenderGlowLayout or emptyCharacterLayout
 KeyLayersLayout, BartenderGlowLayout = nil, nil
 local initialized = false
-local previewIndex, previewPanel, previewInactive, previewToggleKey, previewDefaultStyle
+local previewIndex, previewPanel, previewInactive, previewToggleKey, previewDefaultStyle, previewDimensions
 
 local root = UIParent
 local layers = {
@@ -31,7 +31,7 @@ function addon.NewPanel(name)
         name = name, kind = "free", bars = {}, blizzardBars = {}, layer = "never", activationMode = "none", hintOverride = false, useDefaultStyle = true,
         x = 0, y = 0, width = 240, height = 100, padding = 8,
         fill = "101821", fillAlpha = 0.64, border = "65CCFF", borderAlpha = 1,
-        thickness = 4, depth = 0, linger = 0.25, fade = 0.25,
+        thickness = 2, borderTexture = "solid", depth = 0, linger = 0.25, fade = 0.25,
     }
 end
 
@@ -212,14 +212,20 @@ local hintAnchors = {
     ["right-end"] = {"BOTTOMLEFT", "BOTTOMRIGHT"},
 }
 
+addon.hintAnchors=hintAnchors
+
+function addon.CreateLabelTab(frame)
+    local tab = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    tab.bg = tab:CreateTexture(nil, "BACKGROUND")
+    tab.bg:SetAllPoints()
+    tab.text = tab:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    tab.text:SetJustifyH("CENTER")
+    tab.text:SetJustifyV("MIDDLE")
+    return tab
+end
+
 function addon.CreateHint(frame)
-    frame.tab = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-    frame.tab.bg = frame.tab:CreateTexture(nil, "BACKGROUND")
-    frame.tab.bg:SetAllPoints()
-    frame.tab.text = frame.tab:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    frame.tab.text:SetPoint("CENTER")
-    frame.tab.text:SetJustifyH("CENTER")
-    frame.tab.text:SetJustifyV("MIDDLE")
+    frame.tab = addon.CreateLabelTab(frame)
 end
 
 function addon.GlobalHints()
@@ -253,23 +259,55 @@ function addon.LayoutHint(frame, panel)
         label = (hold and label .. " / " or "") .. (GetBindingText and GetBindingText(key) or key)
     end
     local settings = addon.HintSettings(panel)
-    local side, vertical = settings.hintSide, settings.hintOrientation == "vertical"
-    if tab.label == label and tab.side == side and tab.vertical == vertical then return end
-    tab.label, tab.side, tab.vertical = label, side, vertical
+    addon.LayoutLabelTab(tab, frame, label, settings)
+end
+
+function addon.LayoutLabelTab(tab, frame, label, settings)
+    local side = hintAnchors[settings.hintSide] and settings.hintSide or "top-start"
+    local vertical = settings.hintOrientation == "vertical"
+    local font, size = settings.font, settings.size
+    if tab.label == label and tab.side == side and tab.vertical == vertical
+        and tab.font == font and tab.fontSize == size then return end
+    tab.label, tab.side, tab.vertical, tab.font, tab.fontSize = label, side, vertical, font, size
+    if addon.ApplyHotkeyStyle and (font or size) then addon.ApplyHotkeyStyle(tab.text, settings) end
     if tab.text.SetRotation then tab.text:SetRotation(0) end
     tab.text:SetText(label)
     local width = math.max(42, tab.text:GetStringWidth() + 16)
-    tab.text:SetSize(width, 24)
+    local height = math.max(24, (size or 12) + 8)
+    tab.text:SetSize(width, height)
     local rotate = vertical and tab.text.SetRotation
-    tab:SetSize(rotate and 24 or width, rotate and width or 24)
+    tab:SetSize((rotate and height or width) + (tab.profileArrows and 28 or 0), rotate and width or height)
     tab.text:ClearAllPoints()
-    -- Compensate for the vertical font's optical offset in the rotated tab.
     tab.text:SetPoint("CENTER", tab, "CENTER", rotate and -3 or 0, rotate and -4 or 0)
     if rotate then tab.text:SetRotation(math.pi / 2) end
     tab:ClearAllPoints()
     local anchors = hintAnchors[side]
-    if anchors then tab:SetPoint(anchors[1], frame, anchors[2])
-    else tab:SetPoint("BOTTOMLEFT", frame, "TOPLEFT") end
+    tab:SetPoint(anchors[1], frame, anchors[2])
+end
+
+function addon.CreateTotemProfileTab(frame)
+    local tab = addon.CreateLabelTab(frame)
+    tab.profileArrows = {}
+    for _, direction in ipairs({-1, 1}) do
+        local arrow = CreateFrame("Button", nil, tab)
+        local side = direction == -1 and "LEFT" or "RIGHT"
+        arrow:SetSize(14, 20)
+        arrow:SetPoint(side, tab, side, -direction * 2, 0)
+        arrow.icon = arrow:CreateTexture(nil, "OVERLAY")
+        arrow.icon:SetPoint("CENTER")
+        arrow.icon:SetSize(10, 11)
+        arrow.icon:SetTexture([[Interface\AddOns\]] .. addonName .. [[\Media\TotemControls.tga]])
+        arrow.icon:SetTexCoord(direction == -1 and .5 or 0, direction == -1 and 0 or .5, 0, 1)
+        arrow:SetScript("OnClick", function() KeyLayersStepTotemProfile(direction) end)
+        tab.profileArrows[#tab.profileArrows + 1] = arrow
+    end
+    return tab
+end
+
+local function tintProfileArrows(tab)
+    if tab.profileArrows then
+        for _, arrow in ipairs(tab.profileArrows) do arrow.icon:SetVertexColor(tab.text:GetTextColor()) end
+    end
 end
 
 function addon.HintVisibleForFrame(panel)
@@ -281,19 +319,34 @@ function addon.HasHint(panel)
     return addon.GlobalHints().hint and addon.HintVisibleForFrame(panel) and (addon.HoldLayer(panel) or hintToggleKey(panel))
 end
 
-function addon.TintHint(tab, panel, active)
+function addon.TintHint(tab, panel, active, custom)
     local border = addon.borderTextures[panel.borderTexture]
     local edge = border and border.file
     local size = border and math.min(10, border.size)
+    if custom and not edge and panel.thickness > 0 then
+        edge, size = [[Interface\Buttons\WHITE8X8]], math.min(10, panel.thickness)
+    end
     if tab.hintEdge ~= edge or tab.hintEdgeSize ~= size then
         tab:SetBackdrop(edge and {edgeFile = edge, edgeSize = size} or nil)
         tab.hintEdge, tab.hintEdgeSize = edge, size
     end
     local r, g, b = rgb(panel.border)
     if edge then
-        r, g, b = 1, 1, 1
+        if border then r, g, b = 1, 1, 1 end
         tab:SetBackdropBorderColor(r, g, b, panel.borderAlpha)
     end
+    if custom then
+        local fill = addon.fillTextures[panel.fillTexture]
+        tab.bg:SetShown(panel.fillAlpha > 0)
+        tab.bg:SetVertexColor(1, 1, 1, 1)
+        if fill then tab.bg:SetTexture(fill) else tint(tab.bg, panel.fill, 1) end
+        tab.bg:SetAlpha(panel.fillAlpha)
+        tab.text:SetTextColor(1, 1, 1, 1)
+        tab.text:SetShadowOffset(1, -1)
+        tintProfileArrows(tab)
+        return
+    end
+    tab.bg:SetAlpha(1)
     tab.bg:SetShown(active)
     if not active then
         tab.text:SetTextColor(r, g, b, 1)
@@ -315,6 +368,47 @@ function addon.TintHint(tab, panel, active)
         tab.text:SetTextColor(0.035, 0.05, 0.07, 1)
         tab.text:SetShadowOffset(0, 0)
     end
+    tintProfileArrows(tab)
+end
+
+function addon.ProfileHintSettings(panel, bar)
+    if panel.profileHint then return panel.profileHint end
+    bar = bar or {}
+    return {hintSide = bar.profileAnchor or "top-start", font = bar.profileFont or "game",
+        size = bar.profileFontSize or 12}
+end
+
+function addon.ProfileHintAnchor(panel, preferred)
+    local standard = addon.HintSettings(panel).hintSide
+    standard = hintAnchors[standard] and standard or "top-start"
+    preferred = hintAnchors[preferred] and preferred or "top-start"
+    if not addon.HasHint(panel) or preferred ~= standard then return preferred end
+    return standard:match("^bottom") and "top-start" or "bottom-start"
+end
+
+function addon.UpdateProfileHint(frame, panel, style, active)
+    local bar = addon.BarLayout and addon.BarLayout.totemBar(panel)
+    local settings = bar and addon.ProfileHintSettings(panel, bar)
+    local tab = frame.profileTab
+    if not settings or settings.hint == false then
+        if tab then tab:Hide() end
+        return false
+    end
+    if not tab then
+        tab = addon.CreateTotemProfileTab(frame)
+        frame.profileTab = tab
+    end
+    tab:SetFrameLevel(frame.tab:GetFrameLevel())
+    local anchor = addon.ProfileHintAnchor(panel, settings.hintSide)
+    addon.LayoutLabelTab(tab, frame, addon.TotemProfiles().active,
+        {hintSide = anchor, hintOrientation = settings.hintOrientation,
+            font = settings.font or "game", size = settings.size or 12})
+    local activated = active and (addon.HoldLayer(panel) or addon.PanelToggle(panel))
+    local customStyle
+    if activated then customStyle = settings.activeStyle else customStyle = settings.defaultStyle end
+    addon.TintHint(tab, customStyle or style, active, not not customStyle)
+    tab:Show()
+    return true
 end
 
 local function newEffect()
@@ -340,6 +434,7 @@ addon.linkedKinds = {
 }
 addon.kindLabels = {
     free = tr("Cadre libre", "Free frame"),
+    owned = tr("Barres KeyLayers", "KeyLayers bars"),
     bars = "Bartender4",
     blizzard = tr("Barres Blizzard", "Blizzard bars"),
     micro = tr("Menu d’icônes", "Micro menu"),
@@ -467,9 +562,64 @@ local function boundsForMicroMenu(frame, rootScale)
     return includeFrame(nil, frame, rootScale)
 end
 
+local function microMenuFrames()
+    if BT4BarMicroMenu and CharacterMicroButton and CharacterMicroButton:GetParent() == BT4BarMicroMenu then
+        return BT4BarMicroMenu, BT4BarMicroMenu
+    end
+    local menu = MicroMenu or MicroMenuContainer
+    if MicroMenuContainer and MicroMenu then
+        return menu, MicroMenu:GetParent() == MicroMenuContainer and MicroMenuContainer or nil
+    end
+    return menu, menu
+end
+
+local movedMicroMenu
+local function ownsMicroMenuAnchor(state)
+    local point, relative, relativePoint, x, y = state.frame:GetPoint(1)
+    return state.frame:GetNumPoints() == 1 and point == "CENTER" and relative == root
+        and relativePoint == "CENTER" and x == state.x and y == state.y
+end
+
+local function updateMicroMenuPosition(position, rootScale)
+    if InCombatLockdown() then return end
+    local menu, frame = microMenuFrames()
+    if movedMicroMenu and (not position or movedMicroMenu.frame ~= frame) then
+        if ownsMicroMenuAnchor(movedMicroMenu) then
+            local previous = movedMicroMenu.frame
+            previous:ClearAllPoints()
+            for _, point in ipairs(movedMicroMenu.points) do previous:SetPoint(unpack(point, 1, 5)) end
+        end
+        movedMicroMenu = nil
+    end
+    if not position or not frame then return end
+
+    local bounds = boundsForMicroMenu(menu, rootScale)
+    local x, y = frame:GetCenter()
+    if not bounds or not x then return end
+    local dx = position.x - (bounds.left + bounds.right - root:GetWidth()) / 2
+    local dy = position.y - (bounds.bottom + bounds.top - root:GetHeight()) / 2
+    if math.abs(dx) < .1 and math.abs(dy) < .1 then return end
+
+    if not movedMicroMenu or not ownsMicroMenuAnchor(movedMicroMenu) then
+        movedMicroMenu = {frame = frame, points = {}}
+        for i = 1, frame:GetNumPoints() do movedMicroMenu.points[i] = {frame:GetPoint(i)} end
+    end
+    local scale = frame:GetEffectiveScale() / rootScale
+    movedMicroMenu.x = x - root:GetWidth() / (2 * scale) + dx / scale
+    movedMicroMenu.y = y - root:GetHeight() / (2 * scale) + dy / scale
+    frame:ClearAllPoints()
+    frame:SetPoint("CENTER", root, "CENTER", movedMicroMenu.x, movedMicroMenu.y)
+end
+
 function addon.BarActionButton(kind, id, slot)
+    if kind == "owned" then
+        local f = addon.ownedBars[id]
+        return f and f.model and slot <= (f:GetAttribute("count") or 0) and f.buttons[slot]
+    end
     if kind == "bars" then
-        return _G["BT4Button" .. ((id - 1) * 12 + slot)]
+        local button = _G["BT4Button" .. ((id - 1) * 12 + slot)]
+        if button then return button end
+        return nil
     end
     local bar = blizzardBars[id]
     local prefix = id == 1 and "ActionButton" or bar .. "Button"
@@ -477,6 +627,7 @@ function addon.BarActionButton(kind, id, slot)
 end
 
 function addon.NativeBarBinding(kind, id, slot)
+    if kind == "owned" then return "CLICK KeyLayersBar" .. id .. "Button" .. slot .. ":LeftButton" end
     if kind == "bars" then
         id = bartenderNumbers[id]
     end
@@ -500,28 +651,28 @@ local function boundsForBar(kind, id, rootScale)
 end
 
 local function panelBounds(panel, rootScale)
-    if panel.kind == "free" then
-        local left = (root:GetWidth() - panel.width) / 2 + panel.x
-        local bottom = (root:GetHeight() - panel.height) / 2 + panel.y
-        return left, bottom, panel.width, panel.height
+    if panel.kind == "free" or panel.kind == "owned" then
+        local g = panel
+        if panel.kind=="owned" and addon.BarLayout then
+            local saved=previewIndex and KeyLayersCharLayout.panels[previewIndex]
+            local moving=addon.MovingFrameGeometry and addon.MovingFrameGeometry(panel==previewPanel and saved or panel)
+            local dimensions = previewDimensions and previewDimensions[panel] or panel
+            g=addon.BarLayout.envelope(dimensions,moving or dimensions)
+        end
+        return (root:GetWidth()-g.width)/2+g.x,(root:GetHeight()-g.height)/2+g.y,g.width,g.height
     end
 
     local bounds
     if panel.kind == "chat" then
         bounds = includeFrame(nil, panel.chatId and _G["ChatFrame" .. panel.chatId], rootScale)
-    -- Bartender4 reparents the icon buttons and returns them to Blizzard for alternate UI states.
-    elseif panel.kind == "micro" and BT4BarMicroMenu and CharacterMicroButton
-        and CharacterMicroButton:GetParent() == BT4BarMicroMenu then
-        bounds = boundsForMicroMenu(BT4BarMicroMenu, rootScale)
+    elseif panel.kind == "micro" then
+        local frame = microMenuFrames()
+        if frame then bounds = boundsForMicroMenu(frame, rootScale) end
     elseif linkedFrames[panel.kind] then
         for _, name in ipairs(linkedFrames[panel.kind]) do
             local frame = _G[name]
             if frame then
-                if panel.kind == "micro" then
-                    bounds = boundsForMicroMenu(frame, rootScale)
-                else
-                    bounds = boundsForLinkedFrame(panel.kind, frame, rootScale)
-                end
+                bounds = boundsForLinkedFrame(panel.kind, frame, rootScale)
                 break
             end
         end
@@ -540,13 +691,13 @@ local function panelBounds(panel, rootScale)
         end
     end
     if not bounds then return end
-    local margin = panel.padding
-    return bounds.left - margin, bounds.bottom - margin,
-        bounds.right - bounds.left + margin * 2, bounds.top - bounds.bottom + margin * 2
+    local paddingX, paddingY = addon.BarLayout.framePadding(panel)
+    return bounds.left - paddingX, bounds.bottom - paddingY,
+        bounds.right - bounds.left + paddingX * 2, bounds.top - bounds.bottom + paddingY * 2
 end
 
 function addon.GetPanelGeometry(panel)
-    if panel.kind == "free" then return panel end
+    if panel.kind == "free" or panel.kind == "owned" then return panel end
     local left, bottom, width, height = panelBounds(panel, root:GetEffectiveScale())
     if not left then return end
     local function round(value)
@@ -569,9 +720,13 @@ function addon.SetBindingOutlines(sources, targets)
 end
 
 local function updateDraftOutline()
-    local panel = hoveredPanel or previewPanel
+    local panel = (addon.DraggedFrame and addon.DraggedFrame()) or hoveredPanel or previewPanel
     if panel then
-        addon.UpdateDraftOutline(panelBounds(panel, root:GetEffectiveScale()))
+        local moving=addon.MovingFrameGeometry and addon.MovingFrameGeometry(panel)
+        if moving and panel.kind~="owned" then
+            addon.UpdateDraftOutline((root:GetWidth()-moving.width)/2+moving.x,
+                (root:GetHeight()-moving.height)/2+moving.y,moving.width,moving.height)
+        else addon.UpdateDraftOutline(panelBounds(panel, root:GetEffectiveScale())) end
     else
         addon.UpdateDraftOutline()
     end
@@ -591,14 +746,49 @@ function addon.CopyStyle(source, target)
     for _, key in ipairs(addon.styleKeys) do target[key] = source[key] end
 end
 
+function addon.DefaultFrameStyle(panel, write)
+    if panel.inactiveStyle then
+        if write and rawget(panel, "inactiveStyle") == nil then panel.inactiveStyle = addon.Copy(panel.inactiveStyle) end
+        return panel.inactiveStyle
+    end
+    if panel.useDefaultStyle then return panel end
+
+    -- Legacy frames can have a separate activated style with a transparent default.
+    local style = {}
+    addon.CopyStyle(panel, style)
+    style.fillAlpha, style.borderAlpha = 0, 0
+    if write then panel.inactiveStyle = style end
+    return style
+end
+local function hasActiveStyle(panel)
+    return not panel.useDefaultStyle and (addon.HoldLayer(panel) or addon.PanelToggle(panel))
+end
+
+function addon.CopyFrameStyle(source, target)
+    addon.CopyStyle(addon.DefaultFrameStyle(source), addon.DefaultFrameStyle(target, true))
+    if hasActiveStyle(source) and hasActiveStyle(target) then addon.CopyStyle(source, target) end
+end
+
 function addon.EditStyle(panel)
     return previewInactive and (panel.inactiveStyle or previewDefaultStyle) or panel, not previewInactive
 end
 
-function addon.SetDraftPreview(index, panel, inactive, toggleKey, defaultStyle)
+function addon.SetDraftPreview(index, panel, inactive, toggleKey, defaultStyle, dimensions)
     previewIndex, previewPanel, previewInactive = index, panel, inactive
-    previewToggleKey, previewDefaultStyle = toggleKey, defaultStyle
+    previewToggleKey, previewDefaultStyle, previewDimensions = toggleKey, defaultStyle, dimensions
     addon.Refresh()
+end
+
+function addon.OwnedParentGeometry(panel)
+    local preview = previewIndex and KeyLayersCharLayout.panels[previewIndex]==panel and previewPanel
+    preview = preview or (previewDimensions and previewDimensions[panel])
+    local moving = addon.MovingFrameGeometry and addon.MovingFrameGeometry(panel)
+    if moving then
+        moving.paddingX, moving.paddingY = addon.BarLayout.framePadding(preview or panel)
+        moving.autoFitBars, moving.barFrameId, moving.kind = (preview or panel).autoFitBars, panel.barFrameId, panel.kind
+        return moving
+    end
+    return addon.GetPanelGeometry(preview or panel)
 end
 
 local function setPaintLevel(layer, level)
@@ -616,6 +806,19 @@ local function refresh()
     local count = #layout.panels
     local draftIndex = previewPanel and (previewIndex or count + 1)
     if draftIndex then count = math.max(count, draftIndex) end
+    local dragged = addon.DraggedFrame and addon.DraggedFrame()
+    local position = dragged and dragged.kind == "micro" and dragged or previewPanel
+    position = position and position.kind == "micro"
+        and ((addon.MovingFrameGeometry and addon.MovingFrameGeometry(position)) or position.microPosition) or nil
+    if not position then
+        for index, panel in ipairs(layout.panels) do
+            if index ~= draftIndex and panel.kind == "micro" and panel.microPosition then
+                position = panel.microPosition
+                break
+            end
+        end
+    end
+    updateMicroMenuPosition(position, scale)
     for index = 1, count do
         local panel = index == draftIndex and previewPanel or layout.panels[index]
         local frame = effects[index]
@@ -718,7 +921,7 @@ local function animate(updateHotkeys)
                 or (toggled and (toggle ~= "base" or activeLayer == "base"))
                 or (hold == "unmodified" and activeLayer == "base" and activeToggle == 0)
                 or (hold and heldSelfCast ~= nil and (hold == heldSelfCast or hold == heldWithoutSelfCast))
-            if updateHotkeys and active and mode ~= "none" then activePanels[panel] = toggled and "toggle" or true end
+            if updateHotkeys and active then activePanels[panel] = toggled and "toggle" or true end
             local alpha = 0
             if active then
                 frame.lastActive, alpha = now, 1
@@ -759,7 +962,14 @@ local function animate(updateHotkeys)
                     frame.tabActive, frame.tabBorder = hintActive, hintStyle
                 end
             end
-            local visible = frame.hasBounds and (alpha > 0 or showDefaultLayer or frame.hasTab)
+            local labelActive = active
+            if previewPanel == panel then labelActive = not previewInactive end
+            local labelStyle = showDefaultLayer and alpha == 0 and panel.inactiveStyle or style
+            local hasProfile = addon.UpdateProfileHint(frame, panel, labelStyle, labelActive)
+            local visible = panel.visibility ~= "hidden"
+                and (panel.visibility ~= "combat" or InCombatLockdown())
+                and (panel.visibility ~= "hover" or frame:IsMouseOver())
+                and frame.hasBounds and (alpha > 0 or showDefaultLayer or frame.hasTab or hasProfile)
                 and not (addon.IsEditingPanel and addon.IsEditingPanel(panel))
             if frame:IsShown() ~= visible then frame:SetShown(visible) end
             if visible and panel.kind == "chat" then
@@ -808,11 +1018,13 @@ events:SetScript("OnEvent", function(self, event, loadedAddon)
         addon.SyncSwitch(true)
         addon.RestoreFrameToggleKeys()
         initialized = true
+        addon.BarLayout.syncProvider(KeyLayersCharLayout)
         addon.InstallOptions()
         addon.Refresh()
     elseif initialized then
         if event == "PLAYER_LOGOUT" then
             addon.RememberFrameToggleKeys()
+            addon.BarLayout.rememberBartenderFrames(KeyLayersCharLayout)
             return
         end
         if event == "UPDATE_BINDINGS" then addon.RememberFrameToggleKeys() end

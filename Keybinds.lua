@@ -19,6 +19,11 @@ local function canUsePrefix(prefix, selfCast)
     return not modifiers[selfCast] or not prefix:find(selfCast .. "-", 1, true)
 end
 
+local function bindingContext(command)
+    return C_KeyBindings and C_KeyBindings.GetBindingContextForAction
+        and C_KeyBindings.GetBindingContextForAction(command)
+end
+
 local function nativeCommands()
     local commands = {}
     for index = 1, GetNumBindings() do
@@ -28,29 +33,30 @@ local function nativeCommands()
     return commands
 end
 
-local function eligibleBars(commands)
+local function eligibleBars(commands, frame)
     local bases, targets, seenBase = {}, {}, {}
     local selfCast = GetModifiedClick and GetModifiedClick("SELFCAST")
-    local function addLayer(panel, layer)
+    local function addLayer(panel, layer, kind, bars, count, offset)
         local base = layer == "unmodified" or layer == "base"
         local prefix = prefixes[layer]
-        local bars = addon.BarSelection(panel)
         if bars and (base or prefix) then
             local group = {}
-            for id = 1, addon.barCounts[panel.kind] do
+            for id = 1, count do
                 if bars[id] then
-                    local number, barLabel = addon.BarLabel(panel.kind, id)
+                    local number, barLabel = addon.BarLabel(kind, id)
                     local entry = {
                         id = id, number = tonumber(number) or math.huge,
                         label = panel.name .. " · " .. barLabel, panel = panel, prefix = prefix, layer = layer, slots = {},
+                        slotCount = kind=="owned" and 0 or 12,
                     }
-                    for slot = 1, 12 do
-                        local action = addon.BarActionButton(panel.kind, id, slot)
-                        local command = addon.NativeBarBinding(panel.kind, id, slot)
-                        if action and action:IsShown() and commands[command] then
-                            local context = C_KeyBindings and C_KeyBindings.GetBindingContextForAction
-                                and C_KeyBindings.GetBindingContextForAction(command)
-                            entry.slots[slot] = {command = command, button = action, context = context}
+                    for slot = 1, kind=="owned" and 36 or 12 do
+                        local action = addon.BarActionButton(kind, id, slot)
+                        local command = addon.NativeBarBinding(kind, id, slot)
+                        if action and action:IsShown() and (kind=="owned" or commands[command]) then
+                            entry.slotCount=math.max(entry.slotCount,slot)
+                            local context = bindingContext(command)
+                            entry.slots[slot] = {command=command,button=action,context=context,
+                                totemElement=kind=="owned" and action.model and action.model.kind=="totem" and slot<=4}
                         end
                     end
                     if not next(entry.slots) then
@@ -65,13 +71,13 @@ local function eligibleBars(commands)
             end)
             for index, entry in ipairs(group) do
                 if base then
-                    local key = panel.kind .. ":" .. entry.id
+                    local key = kind .. ":" .. entry.id
                     if not seenBase[key] then
                         seenBase[key] = true
                         bases[#bases + 1] = entry
                     end
                 else
-                    entry.sourceIndex = index
+                    entry.sourceIndex = index + offset
                     entry.label = entry.label .. " (" .. addon.LayerLabel(layer) .. ")"
                     if not canUsePrefix(prefix, selfCast) then
                         entry.blocked = tr("auto-incantation", "self-cast")
@@ -79,17 +85,53 @@ local function eligibleBars(commands)
                     targets[#targets + 1] = entry
                 end
             end
+            return #group
         end
+        return 0
     end
+    local directTotems={}
     for _, panel in ipairs(KeyLayersCharLayout.panels) do
         local hold, toggle = addon.HoldLayer(panel), addon.PanelToggle(panel)
         local toggleLayer = type(toggle) == "string" and toggle or (toggle and panel.toggleModifier)
-        if hold then addLayer(panel, hold) end
-        if toggleLayer and toggleLayer ~= hold then addLayer(panel, toggleLayer) end
+        local holdOffset,toggleOffset=0,0
+        local function include(kind, ids, count)
+            if hold then holdOffset=holdOffset+addLayer(panel,hold,kind,ids,count,holdOffset) end
+            if toggleLayer and toggleLayer ~= hold then
+                toggleOffset=toggleOffset+addLayer(panel,toggleLayer,kind,ids,count,toggleOffset)
+            end
+        end
+        for _,kind in ipairs({"bars","blizzard"}) do
+            include(kind, addon.BarLayout.links(panel,kind), addon.barCounts[kind])
+        end
+        local owned = addon.AttachedActionIds(panel,true)
+        if owned then
+            local totems={}
+            for id in pairs(owned) do
+                local model=addon.BarLayout.init(KeyLayersCharLayout).bars[id]
+                if model.kind=="totem" then
+                    totems[id]=true
+                    if panel==frame then directTotems[id]=true end
+                    owned[id]=nil
+                end
+            end
+            include("owned",owned,12)
+            if prefixes[hold] then holdOffset=holdOffset+addLayer(panel,hold,"owned",totems,12,holdOffset) end
+            if prefixes[toggleLayer] and toggleLayer~=hold then
+                addLayer(panel,toggleLayer,"owned",totems,12,toggleOffset)
+            end
+        end
+    end
+    if next(directTotems) then
+        local first=#bases+1
+        addLayer(frame,"unmodified","owned",directTotems,12)
+        for index=first,#bases do
+            for _,action in pairs(bases[index].slots) do action.direct=true end
+            bases[index].direct=true
+        end
     end
     for _, target in ipairs(targets) do
         local source = bases[target.sourceIndex]
-        if not target.blocked and (not source or source.blocked) then
+        if not target.blocked and (not source or source.blocked or source.direct) then
             target.blocked = tr("pas de barre Base correspondante", "no matching Base bar")
         end
     end
@@ -138,22 +180,35 @@ local function baseKey(...)
 end
 
 local function keyForAction(action)
-    return baseKey(GetBindingKey(action.command, nil, action.context))
+    if action.direct then return GetBindingKey(action.command,nil,action.context) end
+    return baseKey(GetBindingKey(action.command, nil, action.context)) or baseKey(action.button and action.button.nativeKey)
 end
 
-local function compareSlots(bases, group, pending)
+local function visualSlotFor(action, slot)
+    if action and action.totemElement and action.button and action.button.model then
+        return addon.BarLayout.slotPosition(action.button.model, slot) + 1
+    end
+    return slot
+end
+
+local function sourceSlotFor(action, slot, offset)
+    return visualSlotFor(action, slot) + offset
+end
+
+local function compareSlots(bases, group, pending, offset)
     local sourceCount, targetCount, matched, keyed = 0, 0, 0, 0
     for _, base in ipairs(bases) do
         for _ in pairs(base.slots) do sourceCount = sourceCount + 1 end
     end
     for _, bar in ipairs(group.bars) do
         local base = bases[bar.sourceIndex]
-        for slot in pairs(bar.slots) do
+        for slot, targetAction in pairs(bar.slots) do
             targetCount = targetCount + 1
-            local action = base and base.slots[slot]
+            local sourceSlot = sourceSlotFor(targetAction, slot, offset or 0)
+            local action = base and base.slots[sourceSlot]
             if action then
                 matched = matched + 1
-                if (pending[base] and pending[base][slot]) or keyForAction(action) then keyed = keyed + 1 end
+                if (pending[base] and pending[base][sourceSlot]) or keyForAction(action) then keyed = keyed + 1 end
             end
         end
     end
@@ -168,15 +223,28 @@ local function keyName(key)
     return GetBindingText and GetBindingText(key) or key
 end
 
-local function previewChanges(bases, targets, selected, pending, approved)
+local function selectionKey(action, key)
+    return action.command .. "\0" .. key
+end
+
+local function matchesPrefix(key, prefix)
+    return key:sub(1, #prefix) == prefix and baseKey(key:sub(#prefix + 1))
+end
+
+local function previewChanges(bases, targets, selected, pending, approved, offset, excluded, remapTotems)
+    offset=offset or 0
     local rows, byKey, baseRows = {}, {}, {}
+    local directCommands, directKeys = {}, {}
     local selfCast = GetModifiedClick and GetModifiedClick("SELFCAST")
     local neutral = {}
     for _, key in ipairs({addon.NeutralKey()}) do neutral[key] = true end
 
-    local function add(bar, slot, key, blocked)
+    local function add(bar, slot, key, blocked, movable)
         local action = bar.slots[slot]
-        local row = {key = key, label = bar.label .. " #" .. slot, action = action, blocked = blocked}
+        blocked = addon.ReservedShortcutMessage(key) or blocked
+        local row = {key = key, label = bar.label .. " #" .. visualSlotFor(action, slot), action = action, blocked = blocked,
+            bar = bar, slot = slot}
+        if action and excluded and excluded[selectionKey(action, key)] then return end
         if blocked then return row end
         if not action then
             row.blocked = tr("aucune commande native", "no native binding")
@@ -195,7 +263,7 @@ local function previewChanges(bases, targets, selected, pending, approved)
         row.current = row.previous == action.command
         if not row.current and neutral[key] then
             row.blocked = tr("touche de retour à Base", "return-to-Base key")
-        elseif not row.current and row.previous ~= "" then
+        elseif not row.current and row.previous ~= "" and not (movable and movable[row.previous]) then
             row.conflict = true
             local choice = approved[key]
             row.approved = choice and choice.from == row.previous and choice.to == action.command
@@ -206,37 +274,116 @@ local function previewChanges(bases, targets, selected, pending, approved)
     for index, source in ipairs(bases) do
         local sourceRows = {}
         baseRows[index] = sourceRows
-        for slot = 1, 12 do
+        for slot = 1, source.slotCount or 12 do
             local action = source.slots[slot]
             local staged = pending[source] and pending[source][slot]
             local key = action and (staged or keyForAction(action))
             if key then
-                local row = add(source, slot, key)
-                sourceRows[slot] = row or byKey[key]
-                if staged and row then rows[#rows + 1] = row end
-            end
-        end
-    end
-    for _, target in ipairs(targets) do
-        local sourceRows = baseRows[target.sourceIndex]
-        if selected[target] and sourceRows then
-            for slot = 1, 12 do
-                local base = sourceRows[slot]
-                if base then
-                    local blocked
-                    if not canUsePrefix(target.prefix, selfCast) then
-                        blocked = tr("auto-incantation", "self-cast")
-                    elseif base.key == "F4" and target.prefix:find("ALT-", 1, true) then
-                        blocked = tr("Alt + F4 ferme le jeu", "Alt + F4 closes the game")
-                    elseif base.blocked or (base.conflict and not base.approved) then
-                        blocked = tr("raccourci Base à résoudre", "resolve the Base shortcut")
+                if staged then
+                    local row=add(source,slot,key)
+                    sourceRows[slot]=row or byKey[key]
+                    if row then
+                        rows[#rows+1]=row
+                        if action.direct then
+                            directCommands[action.command] = true
+                            directKeys[key] = true
+                        end
                     end
-                    local row = add(target, slot, target.prefix .. base.key, blocked)
-                    if row then rows[#rows + 1] = row end
+                else
+                    sourceRows[slot]={key=key,action=action}
                 end
             end
         end
     end
+    local unused={}
+    local function releaseKey(key, action)
+        unused[key] = {key=key, label=tr("Libérer la touche","Release key"),
+            action=action, previous=action.command, clear=true}
+    end
+    for _,target in ipairs(targets) do
+        local source=bases[target.sourceIndex]
+        local sourceRows=baseRows[target.sourceIndex]
+        if selected[target] and sourceRows and not target.blocked then
+            local ownedCommands, used, protected = {}, {}, {}
+            local totemBar
+            for _, action in pairs(target.slots) do
+                if action.totemElement then totemBar = true; break end
+            end
+            local remapping = totemBar and remapTotems
+            for _, action in pairs(target.slots) do
+                if directCommands[action.command] or (totemBar and not remapping
+                    and GetBindingKey(action.command, nil, action.context)) then
+                    protected[action.command] = true
+                else
+                    ownedCommands[action.command] = action
+                end
+            end
+            for slot=1,target.slotCount or 12 do
+                local action=target.slots[slot]
+                if action then
+                    local sourceSlot = sourceSlotFor(action, slot, offset)
+                    local base = sourceRows[sourceSlot]
+                    local boundElement = protected[action.command]
+                    if boundElement and not directCommands[action.command] then
+                        for _, key in ipairs({GetBindingKey(action.command, nil, action.context)}) do
+                            if matchesPrefix(key, target.prefix)
+                                and GetBindingAction(key, false, action.context) == action.command then
+                                rows[#rows+1] = {key = key, label = target.label .. " #" .. visualSlotFor(action, slot),
+                                    action = action, current = true}
+                            end
+                        end
+                    end
+                    if base and not boundElement then
+                        used[sourceSlot]=true
+                        local blocked
+                        if base.action and base.action.direct then
+                            blocked=tr("Ce raccourci est assigné directement.","This shortcut is assigned directly.")
+                        elseif not canUsePrefix(target.prefix,selfCast) then
+                            blocked=tr("auto-incantation","self-cast")
+                        elseif base.blocked or (base.conflict and not base.approved) then
+                            blocked=tr("raccourci Base à résoudre","resolve the Base shortcut")
+                        end
+                        local key = target.prefix .. base.key
+                        local owner = GetBindingAction(key, false, action.context)
+                        if not blocked and protected[owner] then
+                            blocked = tr("touche conservée par un totem", "key kept by a totem")
+                        end
+                        if not directKeys[key] then
+                            local row = add(target, slot, key, blocked, remapping and ownedCommands)
+                            if row then
+                                rows[#rows+1] = row
+                                if remapping and not row.blocked and (not row.conflict or row.approved) then
+                                    for _, saved in ipairs({GetBindingKey(action.command, nil, action.context)}) do
+                                        if saved ~= key and matchesPrefix(saved, target.prefix)
+                                            and not directKeys[saved]
+                                            and GetBindingAction(saved, false, action.context) == action.command then
+                                            releaseKey(saved, action)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            for slot=1,source.slotCount or 12 do
+                local base=sourceRows[slot]
+                if base and not used[slot] and not base.blocked and (not base.conflict or base.approved) then
+                    local key=target.prefix..base.key
+                    for command,action in pairs(ownedCommands) do
+                        if GetBindingAction(key,false,action.context)==command then
+                            releaseKey(key, action)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local release={}
+    for key in pairs(unused) do if not byKey[key] then release[#release+1]=key end end
+    table.sort(release)
+    for _,key in ipairs(release) do rows[#rows+1]=unused[key] end
     return rows
 end
 
@@ -245,7 +392,10 @@ local function saveChanges(rows)
     local completed = {}
     for _, row in ipairs(rows) do
         if not row.blocked and not row.current and (not row.conflict or row.approved) then
-            if not SetBinding(row.key, row.action.command, row.action.context) then
+            local command
+            if not row.clear then command=row.action.command end
+            if (command and addon.ReservedShortcutMessage(row.key))
+                or not SetBinding(row.key,command,row.action.context) then
                 for index = #completed, 1, -1 do
                     local old = completed[index]
                     SetBinding(old.key, old.previous ~= "" and old.previous or nil, old.action.context)
@@ -260,6 +410,32 @@ local function saveChanges(rows)
         addon.SyncSwitch()
     end
     return true, #completed
+end
+
+local function frameShortcuts(panel)
+    local rows, seen = {}, {}
+    local function collect(kind, barIds, models)
+        for id in pairs(barIds or {}) do
+            for slot = 1, models and models[id].count or 12 do
+                local command = addon.NativeBarBinding(kind, id, slot)
+                if command and not seen[command] then
+                    seen[command] = true
+                    local context = bindingContext(command)
+                    local action = {command = command, context = context}
+                    for _, key in ipairs({GetBindingKey(command, nil, context)}) do
+                        if GetBindingAction(key, false, context) == command then
+                            rows[#rows+1] = {key = key, action = action, previous = command, clear = true}
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local layout = addon.BarLayout
+    if layout.available() then collect("bars", layout.links(panel, "bars")) end
+    collect("blizzard", layout.links(panel, "blizzard"))
+    collect("owned", addon.AttachedActionIds(panel, true), layout.init(KeyLayersCharLayout).bars)
+    return rows
 end
 
 local function openGameBindings()
@@ -283,11 +459,7 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
     assistant:Hide()
 
     local window = CreateFrame("Frame", nil, assistant)
-    window:SetPoint("TOPLEFT", 0, -36)
-    window:SetPoint("BOTTOMRIGHT")
-    local stylePage = CreateFrame("Frame", nil, assistant)
-    stylePage:SetAllPoints(window)
-    stylePage:Hide()
+    window:SetAllPoints(assistant)
 
     local function text(value, x, y)
         local item = ui.label(window, value, x, y, "GameFontHighlightSmall")
@@ -297,15 +469,17 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
         return item
     end
 
-    text(tr("Place et enregistre d’abord tes barres. Clique sur un bouton de Base puis appuie sur une touche. Les modificateurs sont ignorés pendant la saisie.",
-        "Place and save your bars first. Click a Base button and press a key. Modifiers are ignored during capture."), 18, -10)
+    text(tr("Clique sur un bouton, puis appuie sur une touche. Les lignes de totems acceptent les modificateurs. Les lignes de Base utilisent une touche seule.",
+        "Click a button, then press a key. Totem rows accept modifiers. Base rows use an unmodified key."), 18, -10)
     local warning = text(tr("Cet outil modifie les raccourcis enregistrés dans WoW, pour ton personnage ou ton compte selon le réglage du jeu.",
         "This tool changes saved WoW keybindings for your character or account, depending on your game settings."), 18, -44)
     warning:SetTextColor(1, 0.82, 0.36)
 
     local filter, bases, targets, selected, pending, approved
-    local sourceMenu, apply
+    local sourceMenu, apply, clearFrameButton
+    local openedFrame, excluded
     local targetGroups, sourcePanels
+    local sourceOffset, remapTotems = 0, false
     local generators, hoveredGenerator = {}, nil
     local refreshGeneratorHover
     local redraw, refreshSlots
@@ -399,7 +573,7 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
 
     ui.button(capturePrompt, CANCEL or tr("Annuler", "Cancel"), 252, -86, 128, function()
         cancelCapture()
-        refreshSlots()
+        redraw()
     end)
 
     window:SetScript("OnHide", function()
@@ -419,10 +593,18 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
     keyboard:SetScript("OnKeyDown", function(_, key)
         if key == "ESCAPE" then
             cancelCapture()
-            refreshSlots()
+            redraw()
         elseif captureBar and not isModifier(key) and key ~= "UNKNOWN" and not key:match("^PAD") then
+            local alt = IsAltKeyDown()
+            local warning = addon.ReservedShortcutMessage(key, alt)
+            if warning then promptInstructions:SetText(warning); return end
+            if captureBar.direct then
+                local ctrl, shift = IsControlKeyDown(), IsShiftKeyDown()
+                key=(alt and "ALT-" or "")..(ctrl and "CTRL-" or "")..(shift and "SHIFT-" or "")..key
+            end
             pending[captureBar] = pending[captureBar] or {}
             pending[captureBar][captureSlot] = key
+            excluded[selectionKey(captureBar.slots[captureSlot], key)] = nil
             cancelCapture()
             approved = {}
             redraw()
@@ -470,11 +652,30 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
         captureBar, captureSlot = bar, slot
         keyboard:EnableKeyboard(true)
         keyboard:SetPropagateKeyboardInput(false)
+        promptInstructions:SetText(bar.direct
+            and tr("Appuie sur une touche avec ou sans modificateur. Échap annule.","Press a key with or without modifiers. Escape cancels.")
+            or tr("Appuie sur la touche de ton choix, seule, sans Maj, Ctrl ni Alt. Échap annule.",
+                "Press the key you want on its own, without Shift, Ctrl, or Alt. Escape cancels."))
         promptTarget:SetText(bar.label .. " · " .. tr("Bouton %d", "Button %d"):format(slot))
         placeCapturePrompt(anchor or bar.slots[slot].button)
         capturePrompt:Show()
         status:SetText("")
-        refreshSlots()
+    end
+
+    local function removeShortcut(action, key, bar, slot)
+        if not action or not key or InCombatLockdown() then return end
+        cancelCapture()
+        local saved = GetBindingAction(key, false, action.context) == action.command
+        if saved and not saveChanges({{key=key, action=action, previous=action.command, clear=true}}) then
+            status:SetText(tr("Impossible de désassigner le raccourci.", "Could not clear the shortcut."))
+            return
+        end
+        if bar and pending[bar] and pending[bar][slot] == key then pending[bar][slot] = nil end
+        excluded[selectionKey(action,key)] = true
+        approved[key] = nil
+        status:SetText(saved and tr("Raccourci désassigné.", "Shortcut cleared.")
+            or tr("Proposition retirée.", "Suggestion removed."))
+        redraw()
     end
 
     local function scrollArea(top, bottom)
@@ -510,12 +711,26 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
         row:SetPoint("TOPLEFT", 0, -(index - 1) * 56)
         row.caption = ui.label(row, "", 0, -3, "GameFontHighlightSmall")
         row.slots, row.overlays = {}, {}
-        for slot = 1, 12 do
-            row.slots[slot] = ui.button(row, "", (slot - 1) * 52, -21, 50, function(self) capture(row.bar, slot, self) end)
+        for slot = 1, 36 do
+            row.slots[slot] = ui.button(row, "", ((slot - 1)%12) * 52, -21-24*math.floor((slot-1)/12), 50)
             local overlay = CreateFrame("Button", nil, UIParent, "UIPanelButtonTemplate")
             overlay:SetFrameStrata("HIGH")
             overlay:SetFrameLevel(50)
-            overlay:SetScript("OnClick", function(self) capture(row.bar, slot, self) end)
+            local function click(self, mouseButton)
+                local action = row.bar.slots[slot]
+                if mouseButton == "RightButton" then
+                    local shown = self.bindingPreview
+                    local key = shown and shown.key or (pending[row.bar] and pending[row.bar][slot])
+                        or (action and keyForAction(action))
+                    removeShortcut(action, key, row.bar, slot)
+                else
+                    capture(row.bar, slot, self)
+                end
+            end
+            row.slots[slot]:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            row.slots[slot]:SetScript("OnClick", click)
+            overlay:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            overlay:SetScript("OnClick", click)
             overlay:Hide()
             local function enter() highlight(row.bar and row.bar.slots[slot]) end
             row.slots[slot]:SetScript("OnEnter", enter)
@@ -531,24 +746,35 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
     refreshSlots = function()
         clearHalo()
         wipe(controls)
-        local visible = 0
+        local visible,height = 0,0
         for _, bar in ipairs(bases) do
             if not filter or filter == bar then
                 visible = visible + 1
                 local row = getBarRow(visible)
                 row.bar = bar
+                local count=bar.slotCount or 12
+                local rowHeight=56+24*math.max(0,math.ceil(count/12)-1)
+                row:ClearAllPoints()
+                row:SetPoint("TOPLEFT",0,-height)
+                row:SetHeight(rowHeight)
+                height=height+rowHeight
                 row.caption:SetText(bar.label .. (bar.blocked and " · " .. bar.blocked or ""))
                 for slot, widget in ipairs(row.slots) do
                     local action = bar.slots[slot]
                     local key = action and ((pending[bar] and pending[bar][slot]) or keyForAction(action))
-                    widget:SetText(slot .. " · " .. (key and redKey(key) or "—"))
+                    local position = visualSlotFor(action, slot)
+                    widget:ClearAllPoints()
+                    widget:SetPoint("TOPLEFT", ((position-1)%12)*52, -21-24*math.floor((position-1)/12))
+                    widget:SetText(position .. " · " .. (key and redKey(key) or "—"))
                     widget:SetEnabled(action ~= nil)
+                    widget:SetShown(slot<=count)
                     local overlay = row.overlays[slot]
+                    overlay.bindingPreview = nil
                     if action then controls[action.button] = {widget = widget, overlay = overlay} end
                     if action and action.button:IsVisible() then
                         overlay:ClearAllPoints()
                         overlay:SetAllPoints(action.button)
-                        overlay:SetText(key and redKey(key) or tostring(slot))
+                        overlay:SetText(key and redKey(key) or tostring(position))
                         overlay:Show()
                     else
                         overlay:Hide()
@@ -562,7 +788,7 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
             row:Hide()
             for _, overlay in ipairs(row.overlays) do overlay:Hide() end
         end
-        baseContent:SetHeight(math.max(visible * 56, 1))
+        baseContent:SetHeight(math.max(height,1))
     end
 
     local function groupsFor(layer)
@@ -604,7 +830,7 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
         else
             for _, group in ipairs(groups) do
                 panels[#panels + 1] = group.panel
-                local source, target, matched, keyed = compareSlots(bases, group, pending)
+                local source, target, matched, keyed = compareSlots(bases, group, pending, sourceOffset)
                 tooltip:AddLine(tr("%s · %d boutons Base, %d en cible, %d positions communes.",
                     "%s · %d Base buttons, %d target buttons, %d matching positions.")
                     :format(group.panel.name, source, target, matched), 1, 1, 1, true)
@@ -629,6 +855,43 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
     end
 
     ui.label(window, tr("Générer par combinaison", "Generate by combination"), 18, -239)
+    local offsetLabel=ui.label(window,"",307,-239,"GameFontHighlightSmall")
+    local offsetSlider=CreateFrame("Slider",nil,window,"OptionsSliderTemplate")
+    offsetSlider.Low:Hide()
+    offsetSlider.High:Hide()
+    offsetSlider:SetPoint("TOPLEFT",465,-235)
+    offsetSlider:SetSize(178,15)
+    offsetSlider:SetMinMaxValues(0,35)
+    offsetSlider:SetValueStep(1)
+    offsetSlider:SetObeyStepOnDrag(true)
+    offsetSlider:SetValue(0)
+    local function offsetCaption()
+        offsetLabel:SetText(tr("Décalage source : %d","Source offset: %d"):format(sourceOffset))
+    end
+    offsetCaption()
+    offsetSlider:SetScript("OnValueChanged",function(_,value)
+        local newOffset = math.floor(value + .5)
+        if newOffset == sourceOffset then return end
+        sourceOffset, remapTotems = newOffset, true
+        offsetCaption()
+        if next(selected) then
+            for target in pairs(selected) do selected[target] = true end
+        else
+            local onlyLayer
+            for _,target in ipairs(targets) do
+                if not target.blocked then
+                    if onlyLayer and onlyLayer~=target.layer then onlyLayer=false; break end
+                    onlyLayer=target.layer
+                end
+            end
+            if onlyLayer then
+                for _,target in ipairs(targets) do
+                    if target.layer==onlyLayer and not target.blocked then selected[target]=true end
+                end
+            end
+        end
+        if redraw then approved={}; redraw() end
+    end)
     for index, layer in ipairs(generationLayers) do
         local generator = {layer = layer}
         generators[index] = generator
@@ -644,6 +907,7 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
 
             cancelCapture()
             selected, approved = {}, {}
+            remapTotems = true
             for _, group in ipairs(groups) do
                 for _, bar in ipairs(group.bars) do
                     if not bar.blocked then selected[bar] = true end
@@ -698,7 +962,23 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
     text(tr("Applique chaque combinaison séparément. Survole un bouton pour vérifier ses cibles.",
         "Apply each modifier combination separately. Hover over a button to check its targets."), 18, -450)
     ui.label(window, tr("Aperçu des changements", "Preview changes"), 18, -470)
-    text(tr("Coche un conflit pour remplacer le raccourci existant.", "Check a conflict to replace the existing shortcut."), 18, -489)
+    text(tr("Coche un conflit pour le remplacer. Clic droit sur une touche pour la retirer.",
+        "Check a conflict to replace it. Right-click a key to remove it."), 18, -489)
+    local bulk=CreateFrame("CheckButton",nil,window,"UICheckButtonTemplate")
+    bulk:SetPoint("TOPLEFT",385,-464)
+    bulk:SetSize(24,24)
+    local bulkLabel=ui.label(window,tr("Accepter tous les conflits","Accept all conflicts"),414,-470,"GameFontHighlightSmall")
+    bulk:SetHitRectInsets(0,-bulkLabel:GetStringWidth(),0,0)
+    bulk:SetScript("OnClick",function(self)
+        local checked=self:GetChecked()
+        local rows=previewChanges(bases,targets,selected,pending,approved,sourceOffset,excluded,remapTotems)
+        for _,row in ipairs(rows) do
+            if row.conflict and not row.blocked then
+                approved[row.key]=checked and {from=row.previous,to=row.action.command} or nil
+            end
+        end
+        redraw()
+    end)
     local scroll, content = scrollArea(-508, 74)
 
     local function getRow(index)
@@ -723,6 +1003,12 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
             clearHalo()
             GameTooltip:Hide()
         end)
+        item:SetScript("OnMouseUp", function(_, mouseButton)
+            if mouseButton == "RightButton" then
+                local row = item.data
+                removeShortcut(row.action, row.key, row.bar, row.slot)
+            end
+        end)
         item.check:SetScript("OnClick", function(self)
             local row = item.data
             approved[row.key] = self:GetChecked() and {from = row.previous, to = row.action.command} or nil
@@ -738,11 +1024,15 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
             overlay = CreateFrame("Button", nil, UIParent, "UIPanelButtonTemplate")
             overlay:SetFrameStrata("HIGH")
             overlay:SetFrameLevel(50)
+            overlay:RegisterForClicks("RightButtonUp")
+            overlay:SetScript("OnClick", function(self)
+                removeShortcut(self.action, self.bindingKey)
+            end)
             overlay:SetScript("OnEnter", function(self) highlight(self.action, self.previewRow) end)
             overlay:SetScript("OnLeave", clearHalo)
             targetOverlays[index] = overlay
         end
-        overlay.action, overlay.previewRow = row.action, item
+        overlay.action, overlay.previewRow, overlay.bindingKey = row.action, item, row.key
         overlay:ClearAllPoints()
         overlay:SetAllPoints(row.action.button)
         overlay:SetText(redKey(row.key))
@@ -750,14 +1040,29 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
         targetControls[row.action.button] = {widget = item, overlay = overlay}
     end
 
+    local function frameToClear()
+        local only
+        for target in pairs(selected) do
+            if target.panel == openedFrame then return openedFrame end
+            if only and only ~= target.panel then return openedFrame end
+            only = target.panel
+        end
+        return only or openedFrame
+    end
+
     redraw = function(resetScroll)
         refreshSlots()
         sourceMenu:OverrideText(filter and filter.label or allBars)
         if hoveredGenerator then refreshGeneratorHover()
         else addon.SetBindingOutlines(sourcePanels, {}) end
-        local rows = previewChanges(bases, targets, selected, pending, approved)
+        local rows = previewChanges(bases, targets, selected, pending, approved, sourceOffset, excluded, remapTotems)
         local actionable, overlayCount = false, 0
+        local conflicts, accepted=0,0
         wipe(targetControls)
+        for _, row in ipairs(rows) do
+            local control = row.clear and controls[row.action.button]
+            if control and remapTotems then control.overlay:SetText("—") end
+        end
         for index, row in ipairs(rows) do
             local item = getRow(index)
             item.data = row
@@ -767,23 +1072,35 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
             item.caption:SetText(redKey(row.key) .. " → " .. row.label .. (detail and " · " .. detail or ""))
             item.check:SetShown(row.conflict and not row.blocked or false)
             item.check:SetChecked(not not row.approved)
+            if row.conflict and not row.blocked then
+                conflicts=conflicts+1
+                if row.approved then accepted=accepted+1 end
+            end
             item:Show()
             local action = row.action
-            if not row.blocked and action and action.button and action.button:IsVisible()
-                and not controls[action.button] and not targetControls[action.button] then
-                overlayCount = overlayCount + 1
-                drawTargetOverlay(overlayCount, item, row)
+            if not row.clear and not row.blocked and action and action.button and action.button:IsVisible() then
+                local existing=controls[action.button]
+                if existing then
+                    existing.overlay.bindingPreview = row
+                    existing.overlay:SetText(redKey(row.key))
+                elseif not targetControls[action.button] then
+                    overlayCount=overlayCount+1
+                    drawTargetOverlay(overlayCount,item,row)
+                end
             end
             if not row.blocked and not row.current and (not row.conflict or row.approved) then actionable = true end
         end
         for index = #rows + 1, #preview do preview[index]:Hide() end
         for index = overlayCount + 1, #targetOverlays do targetOverlays[index]:Hide() end
+        bulk:SetEnabled(conflicts>0)
+        bulk:SetChecked(conflicts>0 and conflicts==accepted)
         content:SetHeight(math.max(#rows * 26, 1))
         if resetScroll then
             scroll:SetVerticalScroll(0)
             baseScroll:SetVerticalScroll(0)
         end
         apply:SetEnabled(actionable and not InCombatLockdown())
+        clearFrameButton:SetEnabled(frameToClear() ~= nil and not InCombatLockdown())
     end
 
     ui.button(window, tr("Ouvrir les raccourcis de WoW", "Open WoW keybindings"), 18, -620, 230, function()
@@ -796,10 +1113,57 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
                 "In WoW, open Escape → Options → Keybindings."))
         end
     end)
+    clearFrameButton = ui.button(window, tr("Désassigner le cadre", "Clear frame keybindings"), 253, -620, 244, function()
+        local panel = frameToClear()
+        if not panel or InCombatLockdown() then return end
+        cancelCapture()
+        ui.confirm(tr("Désassigner tous les raccourcis du cadre « %s » ?",
+            "Clear all keybindings for the “%s” frame?"):format(panel.name), function()
+            local ok, changed = saveChanges(frameShortcuts(panel))
+            if not ok then
+                status:SetText(tr("Impossible de désassigner les raccourcis du cadre.",
+                    "Could not clear the frame keybindings."))
+                return
+            end
+            local commands = {}
+            local function collectCommands(bar)
+                for _, action in pairs(bar.slots) do commands[action.command] = true end
+            end
+            for _, bar in ipairs(bases) do
+                if bar.panel == panel then
+                    pending[bar] = nil
+                    collectCommands(bar)
+                end
+            end
+            for _, target in ipairs(targets) do
+                if target.panel == panel then
+                    collectCommands(target)
+                    -- Keep the combination available for the next slider change.
+                    if selected[target] then selected[target] = false end
+                end
+            end
+            for key in pairs(excluded) do
+                if commands[key:match("^[^%z]+")] then excluded[key] = nil end
+            end
+            approved = {}
+            status:SetText(changed > 0 and tr("Raccourcis du cadre désassignés.", "Frame keybindings cleared.")
+                or tr("Ce cadre n’a aucun raccourci enregistré.", "This frame has no saved keybindings."))
+            redraw()
+        end)
+    end)
     apply = ui.button(window, tr("Appliquer", "Apply"), 502, -620, 160, function()
         cancelCapture()
-        local rows = previewChanges(bases, targets, selected, pending, approved)
+        local rows = previewChanges(bases, targets, selected, pending, approved, sourceOffset, excluded, remapTotems)
         local ok, changed = saveChanges(rows)
+        if ok then
+            for _, row in ipairs(rows) do
+                local staged = row.bar and pending[row.bar]
+                if staged and staged[row.slot] == row.key
+                    and GetBindingAction(row.key, false, row.action.context) == row.action.command then
+                    staged[row.slot] = nil
+                end
+            end
+        end
         if ok and changed > 0 then
             approved = {}
             status:SetText(tr("Raccourcis enregistrés.", "Keybindings saved."))
@@ -811,31 +1175,36 @@ function addon.CreateKeybindingAssistant(parent, ui, optionsWindow)
         end
         redraw()
     end)
-    local refreshStyle = addon.CreateHotkeyStylePage(stylePage, ui)
-    local showAssignment, showStyle
-    local function selectPage(showingStyle, resetScroll)
-        window:SetShown(not showingStyle)
-        stylePage:SetShown(showingStyle)
-        showAssignment(not showingStyle, true)
-        showStyle(showingStyle, true)
-        if showingStyle then refreshStyle() else redraw(resetScroll) end
-    end
-    showAssignment = ui.tab(assistant, tr("Assignation", "Assignment"), 18, -3, 145, function() selectPage(false) end)
-    showStyle = ui.tab(assistant, tr("Style", "Style"), 168, -3, 145, function() selectPage(true) end)
-
-    function assistant:Open()
-        bases, targets = eligibleBars(nativeCommands())
+    function assistant:Open(frame)
+        cancelCapture()
+        openedFrame, excluded = frame, {}
+        bases, targets = eligibleBars(nativeCommands(),frame)
         targetGroups = groupTargets(targets)
         layoutGenerators()
         sourcePanels = uniquePanels(bases)
         pending, selected, approved = {}, {}, {}
         filter = false
+        local maxOffset=0
+        for _,bar in ipairs(bases) do
+            if not bar.direct then maxOffset=math.max(maxOffset,(bar.slotCount or 12)-1) end
+        end
+        sourceOffset, remapTotems = 0, false
+        offsetSlider:SetValue(0)
+        offsetSlider:SetMinMaxValues(0,math.max(1,maxOffset))
+        offsetSlider:SetEnabled(maxOffset>0)
+        offsetCaption()
+        for _,bar in ipairs(bases) do
+            if bar.panel==frame and (not filter or bar.direct) then filter=bar end
+        end
+        for _,target in ipairs(targets) do
+            if target.panel==frame and not target.blocked then selected[target]=true end
+        end
         self:Show()
         status:SetText("")
-        selectPage(false, true)
+        redraw(true)
         if not bases[1] then
-            status:SetText(tr("Enregistre un cadre lié à une barre avec le déclencheur Base.",
-                "Save a frame linked to an action bar with the Base trigger."))
+            status:SetText(tr("Pour générer des raccourcis, enregistre un cadre lié à une barre avec le déclencheur Base.",
+                "To generate keybindings, save a frame linked to an action bar with the Base trigger."))
         end
     end
     return assistant

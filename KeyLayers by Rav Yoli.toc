@@ -1,16 +1,22 @@
 ## Interface: 16001
 ## Title: KeyLayers by Rav Yoli
+## Category: Action Bars
 ## Author: Rav Yoli
 ## Notes: Shortcut layers and linked interface frames.
-## Version: 1.1.33b
+## Version: 2.1.11b
 ## OptionalDeps: Bartender4, Questie, !ProfileSync, SexyMap, Glass
 ## LoadSavedVariablesFirst: 1
 ## SavedVariables: KeyLayersProfiles, KeyLayersNotices, BartenderGlowProfiles, BartenderGlowNotices
-## SavedVariablesPerCharacter: KeyLayersCharLayout, KeyLayersLayout, BartenderGlowLayout
+## SavedVariablesPerCharacter: KeyLayersCharLayout, KeyLayersLayout, BartenderGlowLayout, KeyLayersTotemProfiles
 Locale.lua
 Switch.lua
 Core.lua
 Edit.lua
 Keybinds.lua
 Hotkeys.lua
+BarLayout.lua
+Totems.lua
+OwnedBars.lua
+Navigation.lua
+BarEditor.lua
 Options.lua

@@ -56,6 +56,9 @@ local function actionKey(button, kind, id, slot, prefix)
             and C_KeyBindings.GetBindingContextForAction(command)
         key = matchingKey(mask, GetBindingKey(command, nil, context))
     end
+    if not key and kind=="owned" and button.nativeKey then
+        key=matchingKey(mask,button.nativeKey)
+    end
     byPrefix[cacheKey] = key or false
     return key
 end
@@ -125,12 +128,12 @@ function addon.UpdateGameplayHotkeys(activePanels)
     for _, panel in ipairs(layout.panels) do
         local layer = addon.PanelKeyLayer(panel, activePanels[panel] == "toggle")
         local prefix = layer and addon.BindingPrefix(layer)
-        local ids = (prefix or mode == "all") and addon.BarSelection(panel)
-        for id = 1, ids and addon.barCounts[panel.kind] or 0 do
+        local function include(kind, ids, count)
+        for id = 1, ids and count or 0 do
             if ids[id] then
-                for slot = 1, 12 do
-                    local button = addon.BarActionButton(panel.kind, id, slot)
-                    if button then
+                for slot = 1, kind=="owned" and 36 or 12 do
+                    local button = addon.BarActionButton(kind, id, slot)
+                    if button and (kind~="owned" or not button.model or button.model.keys~=false) then
                         local state = managed[button]
                         if not state then
                             local name = button:GetName()
@@ -140,9 +143,9 @@ function addon.UpdateGameplayHotkeys(activePanels)
                         end
                         state.present = true
                         if not state.key and button:IsVisible() and (mode == "all" or activePanels[panel]) then
-                            local key = actionKey(button, panel.kind, id, slot, prefix)
+                            local key = actionKey(button, kind, id, slot, prefix)
                             if mode == "all" then
-                                key = key or actionKey(button, panel.kind, id, slot)
+                                key = key or actionKey(button, kind, id, slot)
                             elseif key then
                                 local _, plain = addon.SplitBinding(key)
                                 key = plain
@@ -161,6 +164,13 @@ function addon.UpdateGameplayHotkeys(activePanels)
                 end
             end
         end
+        end
+        if prefix or mode == "all" or activePanels[panel] then
+            for _,kind in ipairs({"bars","blizzard"}) do
+                include(kind, addon.BarLayout.links(panel,kind), addon.barCounts[kind])
+            end
+            include("owned", addon.AttachedActionIds(panel,true), 12)
+        end
     end
     for button, state in pairs(managed) do
         if state.present then
@@ -173,6 +183,25 @@ function addon.UpdateGameplayHotkeys(activePanels)
             restore(button, state)
         end
     end
+end
+
+function addon.CreateHotkeyModeMenu(page,ui,x,y)
+    local tr=addon.Translate
+    local captions={native=tr("Affichage de WoW ou Bartender4","WoW or Bartender4 display"),
+        all=tr("Tous les cadres liés","All linked frames"),active=tr("Cadres actifs uniquement","Active frames only")}
+    local menu
+    local function refresh() menu:OverrideText(captions[displayMode(KeyLayersCharLayout)]) end
+    menu=ui.menu(page,x,y,300,function(root)
+        for _,mode in ipairs({"native","all","active"}) do
+            ui.radio(root,captions[mode],mode,function() return displayMode(KeyLayersCharLayout) end,function(value)
+                KeyLayersCharLayout.hotkeyDisplayMode=value~="native" and value or nil
+                KeyLayersCharLayout.activeHotkeysOnly=nil
+                refresh()
+                addon.Refresh()
+            end)
+        end
+    end)
+    return refresh
 end
 
 function addon.CreateHotkeyStylePage(page, ui)
@@ -193,33 +222,8 @@ function addon.CreateHotkeyStylePage(page, ui)
     end
 
     ui.label(page, tr("Style des raccourcis", "Keybinding style"), 18, -14, "GameFontNormalLarge")
-    local modeLabels = {
-        native = tr("Affichage de WoW ou Bartender4", "WoW or Bartender4 display"),
-        all = tr("Tous les cadres liés", "All linked frames"),
-        active = tr("Cadres actifs uniquement", "Active frames only"),
-    }
-    ui.label(page, tr("Afficher les raccourcis", "Show keybindings"), 18, -45)
-    local modeMenu = ui.menu(page, 18, -63, 300, function(root)
-        for _, mode in ipairs({"native", "all", "active"}) do
-            ui.radio(root, modeLabels[mode], mode, function() return displayMode(KeyLayersCharLayout) end,
-                function(value)
-                    KeyLayersCharLayout.hotkeyDisplayMode = value ~= "native" and value or nil
-                    KeyLayersCharLayout.activeHotkeysOnly = nil
-                    refresh()
-                    addon.Refresh()
-                end)
-        end
-    end)
-    local explanation = ui.label(page, tr(
-        "Dans les deux modes KeyLayers, le style s’applique directement sur les barres liées. Le mode WoW ou Bartender4 suit leurs réglages.",
-        "Both KeyLayers modes apply this style to linked bars. WoW or Bartender4 display follows their own settings."),
-        18, -97, "GameFontHighlightSmall")
-    explanation:SetWidth(644)
-    explanation:SetJustifyH("LEFT")
-    explanation:SetWordWrap(true)
-
-    ui.label(page, tr("Police", "Font"), 18, -137)
-    local fontMenu = ui.menu(page, 18, -157, 196, function(root)
+    ui.label(page, tr("Police", "Font"), 18, -50)
+    local fontMenu = ui.menu(page, 18, -70, 196, function(root)
         for _, font in ipairs(addon.hotkeyFonts) do
             ui.radio(root, fontNames[font.id], font.id, function()
                 return (KeyLayersCharLayout.activeHotkeyStyle or {}).font or "game"
@@ -229,16 +233,16 @@ function addon.CreateHotkeyStylePage(page, ui)
         end
     end)
 
-    ui.label(page, tr("Taille du texte", "Text size"), 243, -137)
-    local sizeMenu = ui.menu(page, 243, -157, 132, function(root)
+    ui.label(page, tr("Taille du texte", "Text size"), 243, -50)
+    local sizeMenu = ui.menu(page, 243, -70, 132, function(root)
         local function current() return (KeyLayersCharLayout.activeHotkeyStyle or {}).size or 0 end
         local function selectSize(size) changeStyle("size", size ~= 0 and size or nil) end
         ui.radio(root, default, 0, current, selectSize)
         for size = 8, 28, 2 do ui.radio(root, tostring(size), size, current, selectSize) end
     end)
 
-    ui.label(page, tr("Couleur du texte", "Text color"), 404, -137)
-    local colorButton = ui.button(page, tr("Choisir…", "Choose…"), 404, -157, 116, function()
+    ui.label(page, tr("Couleur du texte", "Text color"), 404, -50)
+    local colorButton = ui.button(page, tr("Choisir…", "Choose…"), 404, -70, 116, function()
         local layout = KeyLayersCharLayout
         local color = (layout.activeHotkeyStyle or {}).color
         local r, g, b = GameFontHighlightSmall:GetTextColor()
@@ -256,16 +260,16 @@ function addon.CreateHotkeyStylePage(page, ui)
     local swatch = colorButton:CreateTexture(nil, "ARTWORK")
     swatch:SetSize(13, 13)
     swatch:SetPoint("RIGHT", -8, 0)
-    ui.button(page, tr("Réinitialiser", "Reset"), 530, -157, 132, function()
+    ui.button(page, tr("Réinitialiser", "Reset"), 530, -70, 102, function()
         KeyLayersCharLayout.activeHotkeyStyle = nil
         refresh()
         addon.Refresh()
     end)
 
-    ui.label(page, tr("Aperçu du raccourci", "Key label preview"), 18, -224)
+    ui.label(page, tr("Aperçu du raccourci", "Key label preview"), 18, -122)
     local sampleButton = CreateFrame("Frame", nil, page, "BackdropTemplate")
     sampleButton:SetSize(82, 54)
-    sampleButton:SetPoint("TOPLEFT", 18, -249)
+    sampleButton:SetPoint("TOPLEFT", 18, -147)
     sampleButton:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1})
     sampleButton:SetBackdropColor(0.09, 0.11, 0.15, 1)
@@ -277,7 +281,6 @@ function addon.CreateHotkeyStylePage(page, ui)
 
     refresh = function()
         local style = KeyLayersCharLayout.activeHotkeyStyle
-        modeMenu:OverrideText(modeLabels[displayMode(KeyLayersCharLayout)])
         fontMenu:OverrideText(style and fontNames[style.font] or default)
         sizeMenu:OverrideText(style and style.size and tostring(style.size) or default)
         addon.ApplyHotkeyStyle(sample, style)

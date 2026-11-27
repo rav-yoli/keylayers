@@ -19,7 +19,16 @@ function addon.ShortcutActionLabel(binding)
     return _G["BINDING_NAME_" .. binding] or binding
 end
 
+function addon.ReservedShortcutMessage(key, altDown)
+    if key and ((altDown and key == "F4")
+        or (key:sub(-3) == "-F4" and ("-" .. key):find("-ALT-", 1, true))) then
+        return tr("Alt + F4 ferme le jeu. Utilise F5 à la place de F4.",
+            "Alt + F4 closes the game. Use F5 instead of F4.")
+    end
+end
+
 local function assignKey(binding, key, replace)
+    if addon.ReservedShortcutMessage(key) then return false, "reserved" end
     if InCombatLockdown() then return false, "combat" end
     local context = bindingContext(binding)
     local previous = {GetBindingKey(binding, nil, context)}
@@ -66,6 +75,10 @@ end
 
 function addon.AssignNeutralKey(key, replace)
     return assignKey(neutralBinding, key, replace)
+end
+
+function addon.AssignTotemProfileKey(command, key, replace)
+    return assignKey(command, key, replace)
 end
 
 local driver, currentConfig, updatePending, synchronizing
@@ -182,6 +195,7 @@ function addon.RestoreFrameToggleKeys()
 end
 
 function addon.MigrateActivation(layout)
+    if layout.barWorkspace and layout.barWorkspace.inheritanceVersion then return end
     local used = {}
     for _, panel in ipairs(layout.panels) do
         if panel.activationMode == "latch" then used[panel.layer] = true end
@@ -216,7 +230,7 @@ end
 addon.SplitBinding = splitKey
 
 local function isActionBinding(command)
-    return command:match("^CLICK BT4Button%d+:")
+    return command:match("^CLICK KeyLayersBar%d+Button%d+:") or command:match("^CLICK BT4Button%d+:")
         or command:match("^CLICK ActionButton%d+:")
         or command:match("^CLICK MultiBar%a+Button%d+:")
         or command:match("^ACTIONBUTTON%d+$")
@@ -230,7 +244,7 @@ local modifierPrefix = {"CTRL-", "SHIFT-", "CTRL-SHIFT-", "ALT-",
 local selfCastButtons = {}
 
 local function selfCastAction(command)
-    local targetName = command:match("^CLICK (BT4Button%d+):")
+    local targetName = command:match("^CLICK (BT4Button%d+):") or command:match("^CLICK (KeyLayersBar%d+Button%d+):")
     if not targetName then return command end
     local target = _G[targetName]
     if not target then return command end
