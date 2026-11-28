@@ -342,6 +342,35 @@ for _,round in ipairs({true,false}) do
 end
 print("OK two-bar secure paging and base return, inherited key, class slots and eight cooldown configurations")
 
+do
+    local previousBinding, previousTimer = GetBindingKey, C_Timer
+    local firstButton = f.buttons[1]
+    local command = "CLICK " .. firstButton:GetName() .. ":LeftButton"
+    local queries, key = 0, "F6"
+    function GetBindingKey(binding, ...)
+        if binding == command then
+            queries = queries + 1
+            return key
+        end
+        return previousBinding(binding, ...)
+    end
+    C_Timer = {After=noop}
+    ticker.scripts.OnEvent(ticker, "UPDATE_BINDINGS")
+    ticker.scripts.OnUpdate(ticker, .2)
+    assert(firstButton.HotKey.text == "F6")
+    local initialQueries = queries
+    for _ = 1, 4 do ticker.scripts.OnUpdate(ticker, .2) end
+    assert(queries == initialQueries)
+    key = "F7"
+    ticker.scripts.OnEvent(ticker, "UPDATE_BINDINGS")
+    ticker.scripts.OnUpdate(ticker, .2)
+    assert(firstButton.HotKey.text == "F7" and queries > initialQueries)
+    GetBindingKey, C_Timer = previousBinding, previousTimer
+    ticker.pending = nil
+    A.RebuildBars()
+end
+print("OK owned hotkey labels are cached and invalidated by binding changes")
+
 local elem=A.ownedBars[totems.id].buttons[1]
 local owner=elem.selector
 local function press(down)
@@ -1066,12 +1095,26 @@ do
     combat = true
     dismiss:SetAttribute("state-combat", "on")
     snippet(dismiss:GetAttribute("_onstate-combat"), {self=dismiss, newstate="on"})
-    assert(not dismiss:IsMouseEnabled())
+    assert(dismiss:IsMouseEnabled())
     ticker.scripts.OnUpdate(ticker,.2)
-    assert(dismiss:GetAlpha()==0)
-    assert(clickDismiss(true) == false and clickDismiss(false) == false and not dismiss:GetAttribute("type1"))
+    assert(dismiss:GetAlpha()==1)
+    assert(clickDismiss(false) == false and not dismiss:GetAttribute("type1"))
+    assert(clickDismiss(true) == false and not dismiss:GetAttribute("type1"))
+    clickDismiss(false)
+    assert(dismiss:GetAttribute("type1") == "destroytotem" and dismiss:GetAttribute("totem-slot") == 2)
+    placed = false
+    ticker.scripts.OnUpdate(ticker,.2)
+    assert(dismiss:GetAlpha()==.45 and dismiss:IsMouseEnabled())
+    dismiss:SetAttribute("dismissEnabled", false)
+    snippet(dismiss:GetAttribute("_onstate-combat"), {self=dismiss, newstate="on"})
+    assert(not dismiss:IsMouseEnabled() and clickDismiss(true) == false and clickDismiss(false) == false)
+    dismiss:SetAttribute("dismissEnabled", true)
     combat = false
     dismiss:SetAttribute("state-combat", "off")
+    snippet(dismiss:GetAttribute("_onstate-combat"), {self=dismiss, newstate="off"})
+    ticker.scripts.OnUpdate(ticker,.2)
+    assert(not dismiss:IsMouseEnabled() and dismiss:GetAlpha()==0)
+    placed = true
     ticker.scripts.OnUpdate(ticker,.2)
     assert(dismiss:IsMouseEnabled() and dismiss:GetAlpha()==1)
     placed = false
@@ -2291,4 +2334,52 @@ end)()
     dropdown:GenerateMenu()
     assert(#dropdown.options == 0)
     print("OK frame dropdowns initialize without a selection and regenerate after selection")
+end)()
+
+;(function()
+    local fixed, moving = {kind="owned", depth=0}, {kind="chat", depth=0}
+    local layout, width = {panels={fixed}}, 100
+    local calls = {}
+    local addon = {LayoutHint=noop, HasHint=noop, UpdateEditOverlays=noop, DrawBindingOutlines=noop}
+    local source = coreSection("local fixedBounds, hasMovingAttachments", "local hiddenCombatBackground")
+    local refresh, setDragged = assert(load([[
+        local addon, KeyLayersCharLayout, root, panelBounds = ...
+        local worldMapVisible, dragged
+        local effects, levelsPerPanel = {}, 1
+        local function newEffect()
+            return {tab={SetFrameLevel=function() end}, SetSize=function() end,
+                SetPoint=function() end, ClearAllPoints=function() end, SetFrameLevel=function() end}
+        end
+        function addon.DraggedFrame() return dragged end
+        local function visibleWorldMap() end
+        local function updateWorldMapLayer() end
+        local function updateMicroMenuPosition() end
+        local function updateBorderStrata() end
+        local function updateDraftOutline() end
+        local function setPaintLevel() end
+    ]] .. source .. [[
+        return refresh, function(frame) dragged = frame end
+    ]]))(addon, layout, {GetWidth=function() return width end, GetHeight=function() return 100 end,
+        GetEffectiveScale=function() return 1 end}, function(panel)
+        calls[panel] = (calls[panel] or 0) + 1
+        return 10, 10, 40, 40
+    end)
+    refresh()
+    refresh(true)
+    assert(calls[fixed] == 1)
+    layout.panels[2] = moving
+    refresh()
+    refresh(true)
+    assert(calls[fixed] == 2 and calls[moving] == 2)
+    width = 120
+    refresh(true)
+    assert(calls[fixed] == 3)
+    setDragged(fixed)
+    refresh(true)
+    assert(calls[fixed] == 4)
+    setDragged(nil)
+    addon.InvalidateFrameBounds()
+    refresh(true)
+    assert(calls[fixed] == 5)
+    print("OK fixed frame bounds are reused while external, resized and dragged frames update")
 end)()

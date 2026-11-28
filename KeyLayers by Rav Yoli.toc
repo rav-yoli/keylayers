@@ -3,7 +3,7 @@
 ## Category: Action Bars
 ## Author: Rav Yoli
 ## Notes: Shortcut layers and linked interface frames.
-## Version: 2.1.15b
+## Version: 2.1.17b
 ## OptionalDeps: Bartender4, Questie, !ProfileSync, SexyMap, Glass
 ## LoadSavedVariablesFirst: 1
 ## SavedVariables: KeyLayersProfiles, KeyLayersNotices, BartenderGlowProfiles, BartenderGlowNotices

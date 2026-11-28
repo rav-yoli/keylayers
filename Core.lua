@@ -1,7 +1,7 @@
 local addonName, addon = ...
 addon.title = "KeyLayers by Rav Yoli"
 local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-addon.version = getMetadata and getMetadata(addonName, "Version") or "2.1.15b"
+addon.version = getMetadata and getMetadata(addonName, "Version") or "2.1.17b"
 -- ProfileSync scans globals before our ADDON_LOADED handler and recognizes
 -- character data by name. Keep this a plain, character-scoped saved table.
 local emptyCharacterLayout = {panels = {}, mode = "hold", learning = false}
@@ -797,16 +797,33 @@ local function setPaintLevel(layer, level)
     if layer.nativeBorder then layer.nativeBorder:SetFrameLevel(level + 1) end
 end
 
-local function refresh()
-    updateWorldMapLayer(visibleWorldMap())
+local fixedBounds, hasMovingAttachments = {}, false
+local boundsWidth, boundsHeight, boundsScale
+
+function addon.InvalidateFrameBounds()
+    boundsScale = nil
+end
+
+local function refresh(periodic, map)
+    map = map or visibleWorldMap()
+    local width, height, scale = root:GetWidth(), root:GetHeight(), root:GetEffectiveScale()
+    local dragged = addon.DraggedFrame and addon.DraggedFrame()
+    local reuseBounds = periodic and not dragged and not previewPanel and not previewDimensions
+        and width == boundsWidth and height == boundsHeight and scale == boundsScale
+    if reuseBounds and not hasMovingAttachments and not bindingSourcePanels and not hoveredPanel
+        and not map and not worldMapVisible then return end
+    if not reuseBounds then
+        wipe(fixedBounds)
+        boundsWidth, boundsHeight, boundsScale = width, height, scale
+    end
+    updateWorldMapLayer(map)
     local layout = KeyLayersCharLayout
     if not layout then return end
     barBounds = {bars = {}, blizzard = {}}
-    local scale = root:GetEffectiveScale()
+    hasMovingAttachments = false
     local count = #layout.panels
     local draftIndex = previewPanel and (previewIndex or count + 1)
     if draftIndex then count = math.max(count, draftIndex) end
-    local dragged = addon.DraggedFrame and addon.DraggedFrame()
     local position = dragged and dragged.kind == "micro" and dragged or previewPanel
     position = position and position.kind == "micro"
         and ((addon.MovingFrameGeometry and addon.MovingFrameGeometry(position)) or position.microPosition) or nil
@@ -826,7 +843,18 @@ local function refresh()
             frame = newEffect()
             effects[index] = frame
         end
-        local left, bottom, width, height = panelBounds(panel, scale)
+        local fixed = panel.kind == "free" or panel.kind == "owned"
+        local bounds = fixed and reuseBounds and fixedBounds[panel]
+        local left, bottom, width, height
+        if bounds then
+            left, bottom, width, height = unpack(bounds)
+        else
+            left, bottom, width, height = panelBounds(panel, scale)
+            if fixed and not dragged and not previewPanel and not previewDimensions then
+                fixedBounds[panel] = {left, bottom, width, height}
+            end
+        end
+        hasMovingAttachments = hasMovingAttachments or not fixed
         local level = panel.depth * levelsPerPanel
         local defaultStyle = not panel.useDefaultStyle and panel.inactiveStyle
         if defaultStyle and not frame.defaultLayer then
@@ -1038,10 +1066,11 @@ local elapsed = 0
 events:SetScript("OnUpdate", function(_, delta)
     if not initialized then return end
     elapsed = elapsed + delta
-    local updateHotkeys = elapsed >= 0.10 or (visibleWorldMap() ~= nil) ~= worldMapVisible
+    local map = visibleWorldMap()
+    local updateHotkeys = elapsed >= 0.10 or (map ~= nil) ~= worldMapVisible
     if updateHotkeys then
         elapsed = 0
-        refresh()
+        refresh(true, map)
     end
     animate(updateHotkeys)
 end)

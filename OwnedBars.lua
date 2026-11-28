@@ -146,6 +146,23 @@ local function playerAuraDuration(spell)
     end
 end
 
+local bindingRevision = 0
+local function updateButtonHotkey(button, show)
+    if show and button.hotkeyRevision ~= bindingRevision then
+        local command = "CLICK " .. button:GetName() .. ":LeftButton"
+        local context = C_KeyBindings and C_KeyBindings.GetBindingContextForAction
+            and C_KeyBindings.GetBindingContextForAction(command)
+        local key = GetBindingKey(command, nil, context) or button.nativeKey
+        button.hotkeyLabel = key and GetBindingText(key, "KEY_", true) or ""
+        button.hotkeyRevision = bindingRevision
+    end
+    local text = show and button.hotkeyLabel or ""
+    if button.hotkeyText ~= text then
+        button.HotKey:SetText(text)
+        button.hotkeyText = text
+    end
+end
+
 local function draw(b, preview)
     local bar = draftBarStyles and draftBarStyles[b.model] or b.model
     setShape(b, bar.shape or "square")
@@ -218,11 +235,7 @@ local function draw(b, preview)
     else
         b.itemCount:SetText(spellCountText(spell, slot))
     end
-    local command="CLICK "..b:GetName()..":LeftButton"
-    local context=C_KeyBindings and C_KeyBindings.GetBindingContextForAction
-        and C_KeyBindings.GetBindingContextForAction(command)
-    local key=GetBindingKey(command,nil,context) or b.nativeKey
-    b.HotKey:SetText(bar.keys and key and GetBindingText(key, "KEY_", true) or "")
+    updateButtonHotkey(b, bar.keys)
     local cooldown=bar.cooldown or "edge"
     local red,green,blue=color(bar.cooldownColor or "FFD42E")
     local rounded=cooldown=="edge" and b.shape=="rounded"
@@ -293,18 +306,21 @@ local function draw(b, preview)
         math.max(0,math.min(1,(totemStart+totemDuration-GetTime())/totemDuration))
     local life=remaining and remaining>0
     if b.dismissTotem then
-        local dismissible = not InCombatLockdown() and bar.showTotemDismiss ~= false
-            and activeTotem and not not (life or totemDurationObject)
+        local combat = InCombatLockdown()
+        local enabled = bar.showTotemDismiss ~= false
+        local dismissible = enabled and activeTotem and not not (life or totemDurationObject)
         if dismissible and GetTotemCannotDismiss then
             local cannotDismiss = GetTotemCannotDismiss(b.slot)
             dismissible = not ((issecretvalue and issecretvalue(cannotDismiss)) or cannotDismiss)
         end
         dismissible = not not dismissible
         local dismiss = b.dismissTotem
-        dismiss:SetAlpha(dismissible and 1 or 0)
-        dismiss.dismissible:SetShown(dismissible)
-        if not InCombatLockdown() and dismiss:IsMouseEnabled() ~= dismissible then
-            dismiss:EnableMouse(dismissible)
+        -- Combat cannot change the protected hit targets based on the aura display.
+        -- Keep each clickable target visible even when its totem is absent.
+        dismiss:SetAlpha(dismissible and 1 or (combat and enabled and .45 or 0))
+        if not combat then
+            dismiss.dismissible:SetShown(dismissible)
+            if dismiss:IsMouseEnabled() ~= dismissible then dismiss:EnableMouse(dismissible) end
         end
         local rim = dismiss.rim
         local width = bar.totemDismissBorderWidth or math.max(1, math.min(2, bar.borderWidth or 1))
@@ -810,20 +826,20 @@ local function configureTotemDismiss(button)
         dismiss.dismissible:Hide()
         dismiss:SetFrameRef("dismissible", dismiss.dismissible)
         dismiss:SetAttribute("_onstate-combat", [[
-            if newstate == "on" then
-                self:EnableMouse(false)
-                self:SetAttribute("dismissPress", nil)
-                self:SetAttribute("type1", nil)
-            end
+            self:EnableMouse(newstate == "on" and self:GetAttribute("dismissEnabled"))
+            self:SetAttribute("dismissPress", nil)
+            self:SetAttribute("type1", nil)
         ]])
         RegisterStateDriver(dismiss,"combat","[combat] on; off")
         dismiss:WrapScript(dismiss, "OnClick", [[
             self:SetAttribute("type1", nil)
             local combat = self:GetAttribute("state-combat") == "on"
             if SecureCmdOptionParse then combat = SecureCmdOptionParse("[combat] on; off") == "on" end
-            if combat then return false end
+            if not self:GetAttribute("dismissEnabled") then return false end
 
-            local active = self:GetFrameRef("dismissible"):IsShown()
+            -- In combat the native action handles the configured slot. The
+            -- unprotected indicator is only readable by this handler out of combat.
+            local active = combat or self:GetFrameRef("dismissible"):IsShown()
             if down then
                 self:SetAttribute("dismissPress", active)
                 return false
@@ -870,7 +886,9 @@ local function configureTotemDismiss(button)
         dismiss:SetPoint("CENTER", button, "CENTER", math.sin(angle) * distance, math.cos(angle) * distance)
         dismiss:SetAttribute("totem-slot", button.slot)
         dismiss:SetAttribute("dismissPress", nil)
-        dismiss:SetShown(button.slot ~= nil and button.model.showTotemDismiss ~= false)
+        local enabled = button.slot ~= nil and button.model.showTotemDismiss ~= false
+        dismiss:SetAttribute("dismissEnabled", enabled)
+        dismiss:SetShown(enabled)
         dismiss:SetAlpha(0)
         dismiss.dismissible:Hide()
 
@@ -961,6 +979,7 @@ local function configure(bar, frame, claimed)
         end
         b.slot=nil
         b.nativeKey=nil
+        b.hotkeyRevision=nil
         if bar.kind=="action" and i<=12 then
             b:SetAttribute("type","action")
             b:SetAttribute("action",(bar.page-1)*12+i)
@@ -1194,6 +1213,7 @@ function A.RebuildBars()
     A.SyncTotemProfileControls(runtime)
     A.RefreshOwnedSpellBook()
     A.InvalidateGameplayHotkeys()
+    if A.InvalidateFrameBounds then A.InvalidateFrameBounds() end
 end
 
 local function bindingSignature()
@@ -1252,6 +1272,7 @@ events:SetScript("OnEvent",function(_,event,unit,_,spellID)
         return
     end
     if event=="UPDATE_BINDINGS" then
+        bindingRevision = bindingRevision + 1
         A.SyncTotemProfileBindings()
         local signature=bindingSignature()
         if signature==events.keySignature then return end
@@ -1264,9 +1285,9 @@ end)
 local function drawBar(frame)
     local model = frame.model
     local parent = M.frame(model)
-    local geo = parent and A.OwnedParentGeometry(parent)
     local visible = model.visibility ~= "hover" or frame:IsMouseOver()
-    if visible and parent and parent.visibility == "hover" and geo then
+    local geo = visible and parent and parent.visibility == "hover" and A.OwnedParentGeometry(parent)
+    if geo then
         local x, y = GetCursorPosition()
         local scale = UIParent:GetEffectiveScale()
         visible = math.abs(x/scale-UIParent:GetWidth()/2-geo.x) <= geo.width/2

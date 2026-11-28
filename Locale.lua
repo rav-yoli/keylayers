@@ -399,6 +399,12 @@ end
 
 addon.releaseHistoryBase = "1.1.13b"
 addon.releaseHistory = {
+    {"2.1.17b", addon.Translate(
+        "Réduction des recalculs de raccourcis et de géométrie des cadres fixes.",
+        "Reduced repeated hotkey lookups and fixed-frame geometry calculations.")},
+    {"2.1.16b", addon.Translate(
+        "La croix de retrait des totems fonctionne de nouveau en combat. Elle reste atténuée pour les emplacements sans totem révocable.",
+        "Totem dismissal works in combat again. Crosses are dimmed for slots without a dismissible totem.")},
     {"2.1.15b", addon.Translate(
         "Les barres d’action ignorent les auras que le jeu ne rend pas accessibles et continuent de s’actualiser.",
         "Action bars now skip inaccessible auras and continue updating.")},
